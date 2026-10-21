@@ -273,6 +273,57 @@ web UI already does well. Only worth it if the embedded panel proves limiting
 in daily use. Revisit F6 (power controls), F8 (VNC) and F9 (LXC terminal)
 together with this — they are the natural first slices.
 
+### F17. Cross-platform support (Windows / macOS)
+`[ ]` Run on Windows and macOS, not just Linux.
+
+Added 2026-10-21 at the user's request. **Requires changing a decision**:
+`CLAUDE.md` currently states "Target platform: Linux (WebKitGTK). Other OSes
+are not a goal." That line has to change first.
+
+Already portable, no work: Tauri 2, reqwest + rustls, serde/toml, the whole
+`ui/` frontend, and `dirs::config_dir()` (already resolves per-OS). The API
+client, config, launcher and guest list need nothing.
+
+Small and mechanical:
+- Keyring features. `Cargo.toml` pins `sync-secret-service` (Linux only); the
+  crate also offers `apple-native` (Keychain) and `windows-native`
+  (Credential Manager). A per-target feature table; `secrets.rs` is unchanged.
+- SPICE. `/usr/bin/remote-viewer` is hardcoded as the default in `config.rs`
+  and needs a per-OS one. The outstanding 0600 TODO in `spice.rs` is Unix-only,
+  so Windows needs a different approach (ACLs, or a per-user temp dir).
+- Bundle targets: add `msi`/`nsis` and `dmg`; icons need `.ico` and `.icns`,
+  which `tauri icon` generates from `icons/icon.svg`.
+- `cfg`-gate the NVIDIA render workaround in `lib.rs` — harmless elsewhere,
+  but misleading.
+
+The hard part — **certificate pinning (F3/F4)**. Each platform's webview is a
+different object, so it is three implementations of one idea:
+- Linux: `webkit2gtk`, `allow_tls_certificate_for_host`. Done.
+- Windows: WebView2 has `ServerCertificateErrorDetected`, but Tauri does not
+  surface it; reach the raw `ICoreWebView2` through `with_webview` and call it
+  via `windows-rs`.
+- macOS: WKWebView's `didReceiveAuthenticationChallenge`, which means
+  Objective-C interop *and* wry already installs its own navigation delegate.
+
+Escape hatch: on Windows and macOS, installing the Proxmox cluster CA into the
+system trust store is a normal double-click operation (unlike this Linux
+desktop, where the node's sshd blocked getting the file at all). Those
+platforms could ship with no pinning code and a setup note instead.
+
+Estimate: everything except pinning is about half a day of config and build
+plumbing. Pinning on all three is a few days, most of it interop that cannot
+be verified without the hardware.
+
+Real constraint is testing, not code. Every interesting failure found on
+2026-10-21 — NVIDIA DMABUF, console rendering, pveproxy's 3s delay — only
+showed up on real hardware. A Windows build nobody can run is a build nobody
+can call working.
+
+Open questions:
+- Q17.1 Which platforms actually matter — Windows, macOS, or both?
+- Q17.2 Pin certificates everywhere, or ship the CA-install note on the
+  platforms where that is easy?
+
 ### F10. System tray
 `[ ]` Tray icon with quick start/stop for favourite VMs.
 
