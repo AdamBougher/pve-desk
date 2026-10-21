@@ -324,6 +324,54 @@ Open questions:
 - Q17.2 Pin certificates everywhere, or ship the CA-install note on the
   platforms where that is easy?
 
+### F18. Containerized dev environment
+`[ ]` A reproducible, pinned build/dev environment instead of relying on
+whatever this CachyOS install happens to have.
+
+Added 2026-10-21 at the user's request. Splits into two tiers with very
+different difficulty.
+
+**Tier 1 — build and test container (easy, most of the value).**
+No GUI: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test`, `cargo
+build`. Pins the toolchain and the system libs, and doubles as the CI image.
+
+Versions on this machine 2026-10-21, to pin against:
+- rustc / cargo 1.97.1
+- webkit2gtk-4.1 and javascriptcoregtk-4.1 2.54.1
+- libsoup-3.0 3.8.0, gtk+-3.0 / gdk-3.0 3.24.52, glib-2.0 2.90.1
+- plus pkg-config and a C toolchain
+
+Worth building on Debian stable rather than Arch: the bundle targets are
+`deb` and `appimage` (F12), so the build host should resemble the target.
+Expect older webkit there — if it predates 2.40, the `webkit2gtk` crate
+features used for cert pinning won't exist.
+
+**Tier 2 — running the GUI from the container (harder).**
+Needs the Wayland socket (`$XDG_RUNTIME_DIR/wayland-*`) or X11
+(`/tmp/.X11-unix` + xauth), `/dev/dri` for rendering, and the **session D-Bus**
+— without it `org.freedesktop.secrets` is unreachable and the keyring, hence
+auto-login, simply doesn't work.
+
+Already installed here, which makes this much cheaper: **podman 6.1.4** and
+**distrobox 1.8.2.5** (`docker` is the podman shim). distrobox wires up
+display, D-Bus and GPU passthrough by default, so Tier 2 is largely "write a
+distrobox recipe", not "solve socket passthrough".
+
+**Honest caveat.** Every interesting bug found on 2026-10-21 — the NVIDIA
+DMABUF crash, console rendering, pveproxy's 3s delay — was host- or
+network-specific. A container improves reproducibility and CI; it would not
+have caught any of them, and GPU and keyring behaviour *inside* a container
+differs from the host, so a green container run is not evidence the app works
+on a real desktop. Keep verifying on the host.
+
+Open questions:
+- Q18.1 Tier 1 only (build/test/CI), or Tier 2 as well (run the GUI inside)?
+- Q18.2 Base image: Debian stable (matches the `.deb` target, older webkit)
+  or Arch (matches this desktop, newest webkit)?
+- Q18.3 Plain `Containerfile` + podman, or a distrobox recipe? distrobox is
+  easier for Tier 2; a plain Containerfile is easier for CI.
+- Q18.4 Should this become the CI build too, or stay a local convenience?
+
 ### F10. System tray
 `[ ]` Tray icon with quick start/stop for favourite VMs.
 
