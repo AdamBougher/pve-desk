@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pve-desk</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- F16: the app always opens here -->
+  <section id="launcher" hidden>
+    <header>
+      <h1>Connections</h1>
+      <button id="recheck">Re-check</button>
+    </header>
+    <ul id="connections"></ul>
+    <p id="no-connections" hidden>No saved connections yet.</p>
+
+    <details id="add-connection">
+      <summary>Add a connection</summary>
+      <form id="setup-form">
+        <label>Host <input name="host" required placeholder="192.168.1.10"></label>
+        <label>Port <input name="port" type="number" value="8006" required></label>
+        <label>Username <input name="username" required placeholder="root"></label>
+        <label>Realm
+          <select name="realm" required>
+            <option value="" disabled selected>Choose…</option>
+            <option value="pam">pam (Linux user)</option>
+            <option value="pve">pve (Proxmox user)</option>
+          </select>
+        </label>
+        <label>Password <input name="password" type="password" required></label>
+        <button type="submit">Save and connect</button>
+      </form>
+    </details>
+  </section>
+
+  <!-- F5: read-only guest summary. Power controls are the admin panel's job (F6 cut). -->
+  <section id="main" hidden>
+    <header>
+      <h1>Guests</h1>
+      <div>
+        <button id="refresh">Refresh</button>
+        <button id="admin">Admin panel</button>
+        <button id="logout">Log out</button>
+      </div>
+    </header>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Name</th><th>Type</th><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th></tr>
+      </thead>
+      <tbody id="guests"></tbody>
+    </table>
+  </section>
+
+  <p id="status" role="status"></p>
+
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+[package]
+name = "pve-desk"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop client for Proxmox VE (Linux)"
+license = "TBD"
+
+[lib]
+name = "pve_desk_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+thiserror = "2"
+dirs = "6"
+# HTTP client for the Proxmox API (rustls, no OpenSSL dependency)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# System keyring (GNOME Keyring / KWallet via Secret Service)
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+tokio = { version = "1", features = ["time"] }
+
+# Linux-only: reach the underlying WebKitGTK webview so the admin panel can
+# pin the node's self-signed certificate (F4). Already in the tree via tauri;
+# the feature set matches tauri's so the types unify.
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = { version = "2", features = ["v2_40"] }
