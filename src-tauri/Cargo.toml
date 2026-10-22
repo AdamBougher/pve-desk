@@ -20,13 +20,23 @@ toml = "0.8"
 thiserror = "2"
 dirs = "6"
 # HTTP client for the Proxmox API (rustls, no OpenSSL dependency)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-# System keyring (GNOME Keyring / KWallet via Secret Service)
-keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+# native-roots, not webpki-roots: the API client must honour a CA imported
+# into the OS trust store (F17 Q17.2). webpki-roots would ignore it, so the
+# webview would trust the node while this client refused it.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["time"] }
 
+# Per-platform keyring backend. `secrets.rs` is identical on all three; only
+# the backend feature changes (F17).
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 # Linux-only: reach the underlying WebKitGTK webview so the admin panel can
 # pin the node's self-signed certificate (F4). Already in the tree via tauri;
 # the feature set matches tauri's so the types unify.
-[target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2", features = ["v2_40"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }

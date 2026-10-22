@@ -27,8 +27,10 @@ pub fn launch(viewer_path: &str, data: &serde_json::Map<String, serde_json::Valu
     let mut f = std::fs::File::create(&file)?;
     f.write_all(to_vv(data).as_bytes())?;
 
-    // TODO(F7): set 0600 permissions on the file (it contains a one-time
-    // ticket) and delete it after remote-viewer has read it.
+    // TODO(F7): restrict the file to this user — it contains a one-time
+    // ticket — and delete it once remote-viewer has read it. On unix that is
+    // mode 0600 via PermissionsExt; Windows needs an ACL or a per-user
+    // directory instead, so this has to be written per platform (F17).
     Command::new(viewer_path).arg(&file).spawn()?;
     Ok(())
 }

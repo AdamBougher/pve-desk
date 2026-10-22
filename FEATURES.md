@@ -284,6 +284,25 @@ Already portable, no work: Tauri 2, reqwest + rustls, serde/toml, the whole
 `ui/` frontend, and `dirs::config_dir()` (already resolves per-OS). The API
 client, config, launcher and guest list need nothing.
 
+Verified 2026-10-21 by reading the vendored sources:
+- **`set_cookie` exists on all four wry backends** (webkitgtk, wkwebview,
+  webview2, android). The admin panel's "opens already signed in" trick is
+  portable as-is — this was the feature most at risk and it is fine.
+- The keyring crate has `windows-native` and `apple-native` features, so
+  `secrets.rs` is unchanged; only the `Cargo.toml` feature table moves.
+- Tauri hands out a *typed* `ICoreWebView2Controller` on Windows (not a raw
+  pointer), but only `*mut c_void` for WKWebView on macOS.
+- **wry has no server-certificate handling on any platform.** Our Linux
+  pinning reaches past wry into `webkit2gtk` directly; there is no
+  cross-platform seam to extend, so each platform is bespoke.
+- **`reqwest` is configured with `rustls-tls`, which uses `webpki-roots`
+  (compiled-in Mozilla roots), not the OS trust store.** Consequence: on
+  Windows/macOS, importing the Proxmox CA into the system store would make
+  the *webview* trust the node but the *API client* would still refuse it.
+  The CA-install escape hatch therefore only solves half the problem on any
+  platform; the API client needs `rustls-tls-native-roots` or explicit
+  pinning regardless. This ties F17 to the unfinished half of F3.
+
 Small and mechanical:
 - Keyring features. `Cargo.toml` pins `sync-secret-service` (Linux only); the
   crate also offers `apple-native` (Keychain) and `windows-native`
@@ -319,14 +338,83 @@ Real constraint is testing, not code. Every interesting failure found on
 showed up on real hardware. A Windows build nobody can run is a build nobody
 can call working.
 
-Open questions:
-- Q17.1 Which platforms actually matter — Windows, macOS, or both?
-- Q17.2 Pin certificates everywhere, or ship the CA-install note on the
-  platforms where that is easy?
+Decisions (2026-10-21):
+- Q17.1 **Windows first, macOS later.** The user has a Windows laptop to test
+  on, which is what makes it worth doing — see the testing note above.
+- Q17.2 **Native roots + CA import**, not per-platform pinning. `reqwest`
+  switches from `webpki-roots` to `rustls-tls-native-roots` so the API client
+  reads the OS trust store; importing the Proxmox cluster CA then satisfies
+  both the webview and the API client on Windows/macOS. Linux keeps its
+  existing in-app pinning, which already works and needed no CA install.
+
+Phases:
+1. Compile everywhere — per-target keyring features, per-OS `remote-viewer`
+   default, `cfg(unix)` on the `.vv` permissions work, `cfg`-gate the NVIDIA
+   render workaround, non-Linux admin panel path (`set_cookie` + navigate,
+   no pinning).
+2. CI matrix on `ubuntu-latest` + `windows-latest`. This is the only
+   cross-platform verification available without the hardware in hand.
+3. Packaging: `msi`/`nsis`, `.ico` from `icons/icon.svg`.
+4. TLS: the native-roots switch above, plus a documented CA-import step.
+
+Open question:
+- Q17.3 Does the admin panel actually open signed-in on Windows? `set_cookie`
+  exists on the webview2 backend, but cookie domain/secure handling may
+  differ. Needs the laptop.
 
 ### F18. Containerized dev environment
-`[ ]` A reproducible, pinned build/dev environment instead of relying on
+`[~]` A reproducible, pinned build/dev environment instead of relying on
 whatever this CachyOS install happens to have.
+
+Tier 1 built and verified 2026-10-21: `cargo fmt --check`, `cargo clippy
+--all-targets -- -D warnings` and `cargo test` (13 passed) all run clean
+inside the image. Clippy compiled the `webkit2gtk` crate there, which proves
+the `v2_40` features the cert pinning needs are available on Debian's
+webkit — the main risk in this feature, now retired.
+
+Files: `.devcontainer/Containerfile`, `.devcontainer/devcontainer.json`,
+`.containerignore`, and `rust-toolchain.toml` (pins 1.97.1 for host and
+container alike, so they cannot drift).
+
+Decisions (2026-10-21):
+- Q18.1 **Tier 1 now, Tier 2 staged.** Build and test work today; the
+  display / D-Bus / `/dev/dri` wiring is written but commented in
+  `devcontainer.json`, ready to enable.
+- Q18.2 **Debian 13 (trixie).** Matches the `.deb` bundle target *and* ships
+  webkit2gtk-4.1 **2.54.0** (host: 2.54.1) — measured, not assumed. Arch was
+  not needed.
+- Q18.3 **`.devcontainer/` + plain Containerfile.** Works with VS Code Dev
+  Containers (set `dev.containers.dockerPath` to `podman`) and the same
+  Containerfile is reusable for CI unchanged. distrobox stays available for
+  Tier 2 if the devcontainer mounts prove awkward.
+- Q18.4 **Local for now, CI-ready.** No CI config added; the image is built
+  so one can use it later.
+
+Not using Debian's `rustc` (1.85.1, far behind this project's 1.97.1) — Rust
+is installed via rustup and pinned. `libssl-dev` is deliberately absent: this
+project uses rustls and must not acquire an OpenSSL dependency.
+
+**Demoted 2026-10-21, same day it was built.** Per-distro install
+instructions are the primary route in the README; the container is an
+optional extra. Reasoning, so this isn't re-litigated:
+
+- CI on `ubuntu-latest` already does the container's main job — a clean
+  Debian-family machine installing the documented dependency list from
+  scratch on every push. The image duplicates that.
+- The container cannot run the app, and this is a GUI client. Every bug
+  found on 2026-10-21 (NVIDIA DMABUF, console rendering, keyring, window
+  focus) needed the GUI on real hardware; none were the kind a build
+  container catches.
+- `rust-toolchain.toml` pins the compiler for host and container alike, so
+  most of the reproducibility win is not the image's doing.
+- It does nothing for anyone *installing* pve-desk — that's F12 packaging.
+
+Kept because it works, costs a few files, and is useful for offline or
+pre-push checks against Debian. Note the README does **not** claim CI uses
+this image; CI installs deps with apt directly.
+
+Still to do for Tier 2: uncomment the mounts, then confirm a window actually
+appears and that the keyring resolves over the mounted session bus.
 
 Added 2026-10-21 at the user's request. Splits into two tiers with very
 different difficulty.
@@ -341,10 +429,9 @@ Versions on this machine 2026-10-21, to pin against:
 - libsoup-3.0 3.8.0, gtk+-3.0 / gdk-3.0 3.24.52, glib-2.0 2.90.1
 - plus pkg-config and a C toolchain
 
-Worth building on Debian stable rather than Arch: the bundle targets are
-`deb` and `appimage` (F12), so the build host should resemble the target.
-Expect older webkit there — if it predates 2.40, the `webkit2gtk` crate
-features used for cert pinning won't exist.
+Debian stable turned out to be the right base: the bundle targets are `deb`
+and `appimage` (F12), so the build host should resemble the target, and the
+feared "older webkit" problem did not materialise — trixie ships 2.54.0.
 
 **Tier 2 — running the GUI from the container (harder).**
 Needs the Wayland socket (`$XDG_RUNTIME_DIR/wayland-*`) or X11
@@ -364,13 +451,9 @@ have caught any of them, and GPU and keyring behaviour *inside* a container
 differs from the host, so a green container run is not evidence the app works
 on a real desktop. Keep verifying on the host.
 
-Open questions:
-- Q18.1 Tier 1 only (build/test/CI), or Tier 2 as well (run the GUI inside)?
-- Q18.2 Base image: Debian stable (matches the `.deb` target, older webkit)
-  or Arch (matches this desktop, newest webkit)?
-- Q18.3 Plain `Containerfile` + podman, or a distrobox recipe? distrobox is
-  easier for Tier 2; a plain Containerfile is easier for CI.
-- Q18.4 Should this become the CI build too, or stay a local convenience?
+Open question:
+- Q18.5 When Tier 2 is switched on, does the GUI actually work from inside —
+  window, rendering, and the keyring over the mounted session bus? Unverified.
 
 ### F10. System tray
 `[ ]` Tray icon with quick start/stop for favourite VMs.
@@ -391,7 +474,8 @@ Open question for later:
 - UI shell: **Tauri 2** (WebKitGTK on Linux), plain HTML/CSS/JS frontend,
   no Node build step
 - Auth: password login, saved in system keyring; **no SSH keys**
-- 2FA: **not used** on the Proxmox account, so login is fully automatic
+- Sign-in: single factor on my Proxmox account, so the client can fetch a
+  ticket without an interactive prompt
 - License: **TBD** (see README)
 - TLS/F3 (2026-10-21): the node serves a self-signed cert from the PVE
   Cluster Manager CA. Decision: **install that CA into this desktop's system

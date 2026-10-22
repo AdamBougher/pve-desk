@@ -6,17 +6,31 @@ Proxmox web UI (admin panel), VM/container list, power controls, SPICE launch.
 `FEATURES.md` is the source of truth for scope, status and open questions.
 Read it before starting any feature.
 
+## Context
+
+pve-desk is a desktop client for a Proxmox VE server on my own home network.
+Every host, account, certificate and ticket referred to in this repo is my
+own infrastructure. The **Hard rules** below exist to protect my credentials
+from careless handling by this app: the password must never reach disk or
+logs, TLS verification must stay on, and the frontend must never be able to
+drive arbitrary API calls.
+
 ## Decisions already made (don't revisit without asking)
 
 - Language: Rust. UI shell: **Tauri 2** (not Tauri 1 — the APIs differ;
   check any Tauri code or docs you use are for v2).
 - Frontend: plain HTML/CSS/JS in `ui/`, no Node, no bundler, no framework.
   Backend is called via `window.__TAURI__.core.invoke`.
-- Auth: username + password against `/api2/json/access/ticket`. Password
-  lives in the system keyring (`keyring` crate, Secret Service). No SSH keys.
-  No 2FA on the account, so login is fully automatic.
+- Auth: my own Proxmox account, username + password against
+  `/api2/json/access/ticket`. The password lives in the system keyring
+  (`keyring` crate, Secret Service) and nowhere else — not in the repo, not
+  in the config file. No SSH keys. The account signs in with a single factor,
+  so the client can fetch a ticket without an interactive prompt.
 - HTTP: `reqwest` with rustls (no OpenSSL).
-- Target platform: Linux (WebKitGTK). Other OSes are not a goal.
+- Target platform: Linux (WebKitGTK) is primary and the only one verified by
+  hand. **Windows is now in scope** (F17), macOS later. Keep new code
+  portable; put platform-specific work behind `cfg` and say which platforms
+  you actually tested.
 - FOSS dependencies only.
 
 ## Layout
@@ -46,9 +60,10 @@ and `cargo test` must pass with no warnings.
 
 - Never write the password to disk, logs, the config file, or error messages.
   It only goes to the keyring and the login request.
-- Never disable TLS verification. The one existing
-  `danger_accept_invalid_certs(true)` in `api.rs` is a marked TODO for F3
-  (certificate pinning) and is the only allowed exception until F3 replaces it.
+- TLS verification must stay enabled. `api.rs` still carries one
+  `danger_accept_invalid_certs(true)` left over from the original skeleton.
+  That is a known defect, marked `TODO(F3)`, and certificate pinning (F3)
+  removes it. Don't add another one and don't widen its scope.
 - Power actions go through the allow-list in `Session::power`. Don't let the
   frontend pass arbitrary API paths.
 - Text that comes from the server (VM names, node names, tags, errors) is set
@@ -68,11 +83,14 @@ and `cargo test` must pass with no warnings.
 - Tickets expire after ~2 hours; re-login before then (plan: every ~90 min).
 - Needed permissions: `VM.Audit` (list), `VM.PowerMgmt` (power),
   `VM.Console` (SPICE).
-- **Unauthenticated API requests are delayed ~3s** by pveproxy to slow
-  brute-forcing. Measured against the node: `GET /api2/json/version` with no
-  cookie takes 3.005s and returns 401, while `GET /` returns 200 in 8ms.
-  So never use an `/api2/json/*` endpoint for a reachability check — probe
-  `/` instead. An authenticated call with a *valid* ticket is not delayed.
+- pveproxy deliberately delays responses to **unauthenticated**
+  `/api2/json/*` requests by ~3s. Two consequences for this app: a liveness
+  probe aimed at an API endpoint takes 3s instead of milliseconds, and each
+  one records a failed authentication in my node's log for no reason. So
+  probe `/` for reachability — it needs no credentials, answers in ~8ms, and
+  leaves the auth log clean. Authenticated calls with a valid ticket are not
+  delayed. (Measured: `GET /api2/json/version` with no cookie = 3.005s / 401;
+  `GET /` = 8ms / 200.)
 - Official API reference: https://pve.proxmox.com/pve-docs/api-viewer/
 - If unsure how an endpoint behaves, say so and check the API viewer rather
   than guessing.

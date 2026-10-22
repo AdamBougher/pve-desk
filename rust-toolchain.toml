@@ -1,0 +1,5 @@
+# Pinned so the container and the host build with the same compiler (F18).
+# Bump deliberately, and rebuild the dev image when you do.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

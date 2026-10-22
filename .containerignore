@@ -1,0 +1,4 @@
+# Keep the build context small: the Rust build tree is hundreds of MB.
+src-tauri/target/
+src-tauri/gen/
+.git/

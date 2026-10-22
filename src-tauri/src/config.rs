@@ -51,8 +51,20 @@ fn default_port() -> u16 {
     8006
 }
 
+/// Default path to `remote-viewer` (F7).
+///
+/// Linux has a stable absolute path. On Windows and macOS virt-viewer is
+/// installed in version-stamped or package-manager-specific locations, so
+/// fall back to the bare command name and let PATH resolve it; the user can
+/// override it in `config.toml`.
 fn default_viewer() -> String {
-    "/usr/bin/remote-viewer".into()
+    if cfg!(target_os = "linux") {
+        "/usr/bin/remote-viewer".into()
+    } else if cfg!(target_os = "windows") {
+        "remote-viewer.exe".into()
+    } else {
+        "remote-viewer".into()
+    }
 }
 
 impl Config {
@@ -222,7 +234,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.remote_viewer_path, "/usr/bin/remote-viewer");
+        assert_eq!(cfg.remote_viewer_path, default_viewer());
         let h = cfg.active().unwrap();
         assert_eq!(h.port, 8006);
         assert_eq!(h.cert_fingerprint, None);
