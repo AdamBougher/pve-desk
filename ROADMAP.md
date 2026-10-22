@@ -19,16 +19,29 @@ the feature is built, and the answers go to `DECISIONS.md`.
 `[~]` `POST /nodes/{node}/qemu/{vmid}/spiceproxy` → write a temporary `.vv`
 file → launch `remote-viewer` with it → delete the file after launch.
 
-Parked, not cut: `remote-viewer` is not installed on this desktop and Q7.1 is
-unanswered, so it has never run. Note the outstanding security debt in
-`spice.rs` (the `.vv` file is written world-readable and never deleted) —
-that must be fixed before this feature is ever enabled.
+Parked, not cut: `remote-viewer` is not installed on this desktop, so it has
+never run. It is also **unreachable** — nothing in `ui/` calls `open_spice`;
+the button went with F6's power controls.
 
-Open questions:
-- Q7.1 Do any of your VMs actually use SPICE (Display = SPICE/qxl), or
-  are they mostly default VGA/VNC? If none use SPICE, this drops in
-  priority and the VNC console (F9) moves up.
-- Q7.2 Path to `remote-viewer` — default `/usr/bin/remote-viewer` OK?
+Hardened 2026-10-21 (`.vv` handling), which was the part that had to be right
+before this could ever be switched on: mode 0600 at creation, a distinct file
+per launch, server-supplied node names kept out of the path, stale files swept
+only when genuinely old, and deletion after a short wait. Six tests in
+`spice.rs`, including one asserting the created file's mode. The launch path
+itself is still unexercised.
+
+Left to do, once Q7.1 says it is worth it: a SPICE button in the guest list
+(only on rows that can use it), and measuring the real read window.
+
+- Q7.1 **Still open.** Do any guests actually use SPICE (Display = SPICE/qxl),
+  or are they all default VGA / VirtIO-GPU? Check in the admin panel: pick a
+  VM → Hardware → Display. If none use SPICE, launching it is dead code and
+  the UI button should not be built at all. Everything *except* the button is
+  done, because the file handling has to be correct either way.
+- Q7.2 **Not an open question** — answered by reading `config.rs`.
+  `remote_viewer_path` already defaults per-OS (`/usr/bin/remote-viewer` on
+  Linux, `remote-viewer.exe` on Windows) and is overridable in the config
+  file. No decision needed.
 
 ### F14. One window with tabs
 `[ ]` Fold the two windows into one: a slim local tab bar with **Admin** (the
@@ -312,9 +325,14 @@ Things that are built but unproven, so they can't be called working.
 - **`session-lost` has never triggered for real** — only the code path exists.
 - **Adding a second connection**, and switching between two, is untested. One
   entry is all that has ever been in the config.
-- **The `.vv` file is written world-readable and never deleted** (F7). Must be
-  0600 and short-lived before SPICE is ever enabled.
-- **`spice.rs` has no tests**, despite `.vv` formatting being a pure function.
+- **The 3-second `.vv` read window is a guess** (F7). `remote-viewer` isn't
+  installed here, so how long it actually needs to read the file before
+  deletion has never been measured. A launch failing with a missing-file
+  error is the symptom.
+- **Spawned viewers are never reaped.** `launch` drops the `Child` without
+  waiting, so on unix each closed console leaves a zombie until pve-desk
+  exits. Pre-existing, harmless at the scale of a few consoles, but it is a
+  leak.
 - **Half the app icon disappears on dark backgrounds.**
   `src-tauri/icons/icon.svg` has two paths: the X carries `fill:#e57000`, but
   the top and bottom chevrons carry no `fill` at all and so default to

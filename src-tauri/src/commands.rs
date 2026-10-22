@@ -289,7 +289,7 @@ pub async fn open_spice(
         },
         other => other,
     }?;
-    spice::launch(&cfg.remote_viewer_path, &data)
+    spice::launch(&cfg.remote_viewer_path, &node, vmid, &data).await
 }
 
 /// F4: open the Proxmox web UI in its own window, already logged in.

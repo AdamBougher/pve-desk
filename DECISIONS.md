@@ -130,6 +130,33 @@ via `webkit2gtk`'s `allow_tls_certificate_for_host`.
 - **Q16.4 `default` means "last used"** — written on every successful
   connect, used only to preselect a row. It never auto-connects.
 
+### SPICE `.vv` handling (2026-10-21)
+The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
+be private and short-lived.
+
+- **Mode 0600 at creation, not afterwards.** Set via `OpenOptionsExt::mode`
+  on unix so there is no window in which the file exists world-readable.
+  Windows has no mode bits; it relies on `%LOCALAPPDATA%\Temp` already being
+  ACL'd to the user, and is marked as needing a check under F17.
+- **Deleted by a short await in `open_spice`, not a background task.** Spawn
+  the viewer, wait ~3s, delete, return. `remote-viewer` reads the file
+  asynchronously after spawn, so there is no observable moment that is
+  provably safe; a fixed delay is the simplest thing that keeps the file
+  brief.
+  Rejected: waiting on the viewer process to exit (needs a task alive for the
+  whole console session, possibly hours, and leaks the file if pve-desk is
+  killed first) and sweeping only at the next launch (a single console would
+  leave the file until quit). The sweep is kept anyway as a backstop for
+  crashes, since it costs nothing.
+  **Unretired risk:** the 3s figure is a guess. `remote-viewer` is not
+  installed on this machine, so how long it actually takes to read the file
+  has never been measured. If a launch fails with a missing-file error, that
+  number is why.
+- **One file per console, not per process.** The name was
+  `console-{pid}.vv`, one fixed path per app run, so a second console
+  overwrote the first's file while the viewer might still be reading it. Now
+  keyed on node and VMID.
+
 ### Linux rendering (revised 2026-10-21)
 `lib.rs` defaults to `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's
 dmabuf renderer and accelerated compositing but routing buffers through shared

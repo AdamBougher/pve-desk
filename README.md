@@ -48,8 +48,9 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
 ## What isn't done
 
 - **SPICE (F7)** is written but has never run — `remote-viewer` isn't
-  installed here. The `.vv` file it writes is not yet mode 0600, which it
-  must be before this is used.
+  installed here, and there's no button for it in the UI yet. Its `.vv` file
+  handling *is* now hardened: created mode 0600, one file per launch, and
+  deleted a few seconds after the viewer starts.
 - **Removing a saved connection** isn't implemented (it means deleting a
   keyring entry, which is a decision still open).
 - **Native power controls** were cut: the admin panel already does this
