@@ -26,18 +26,57 @@ let refreshTimer = null;
 // this rather than hitting the API again (Q5.2).
 let guests = [];
 
+// F14: which tab is selected. The Admin tab is a webview the backend
+// positions below the tab bar, not a DOM section, so selecting it means
+// showing that webview rather than unhiding an element.
+let tab = null;
+
 // Wipe the table and the cached list together (logout, session loss).
 function clearGuests() {
   guests = [];
   $("guests").replaceChildren();
   $("search").value = "";
   $("count").textContent = "";
+  $("tabs").hidden = true;
+  $("main").hidden = true;
+  markTab(null);
 }
 
 function show(section) {
   $("launcher").hidden = section !== "launcher";
   $("main").hidden = section !== "main";
 }
+
+// ---- F14: tabs ----
+
+function markTab(name) {
+  tab = name;
+  $("tab-admin").setAttribute("aria-pressed", String(name === "admin"));
+  $("tab-guests").setAttribute("aria-pressed", String(name === "guests"));
+}
+
+async function selectTab(name) {
+  if (name === tab) return;
+  try {
+    if (name === "admin") {
+      // The guest list stays loaded but hidden: if the webview fails to
+      // appear, an empty pane is clearer than a list you can't reach.
+      await invoke("open_admin_panel");
+      $("main").hidden = true;
+      markTab("admin");
+    } else {
+      await invoke("hide_admin_panel");
+      $("main").hidden = false;
+      markTab("guests");
+      refresh();
+    }
+  } catch (err) {
+    status(`${err}`);
+  }
+}
+
+$("tab-admin").addEventListener("click", () => selectTab("admin"));
+$("tab-guests").addEventListener("click", () => selectTab("guests"));
 
 // ---- F16: launcher ----
 
@@ -190,11 +229,11 @@ $("setup-form").addEventListener("submit", async (e) => {
 
 function startSession() {
   show("main");
+  $("tabs").hidden = false;
   refresh();
   refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
-  invoke("open_admin_panel").catch((err) => {
-    status(`Admin panel failed to open: ${err}`);
-  });
+  // Open on Admin: it is the view actually used (Q16.3).
+  selectTab("admin");
 }
 
 $("logout").addEventListener("click", async () => {
@@ -283,10 +322,7 @@ async function refresh() {
 
 $("search").addEventListener("input", render);
 $("refresh").addEventListener("click", refresh);
-$("admin").addEventListener("click", async () => {
-  try { await invoke("open_admin_panel"); }
-  catch (err) { status(`${err}`); }
-});
+
 
 // ---- F16: always start on the launcher, never auto-connect ----
 showLauncher();

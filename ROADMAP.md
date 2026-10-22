@@ -16,39 +16,34 @@ the feature is built, and the answers go to `DECISIONS.md`.
 ## v1 (current scope)
 
 ### F14. One window with tabs
-`[ ]` Fold the two windows into one: a slim local tab bar with **Admin** (the
+`[~]` Fold the two windows into one: a slim local tab bar with **Admin** (the
 Proxmox UI) and **Guests** (the F5 list), instead of a separate panel window.
 
 Asked for 2026-10-21: "keeping one window that has tabs would be nice", with
 the login window kept around and the running list living in it.
 
-Why it is not trivial — the Proxmox UI would move into an `<iframe>` inside
-our own page, and the cert pinning (F3) currently hangs off WebKitGTK's
-`load-failed-with-tls-errors` signal, which fires for main-frame loads. It is
-unverified whether it fires for a subframe; if it does not, the iframe fails
-with an unacceptable-certificate error and nothing catches it.
+The original plan was an `<iframe>`, which would have put a remote origin
+inside our own page and broken F3's certificate pinning. That was rejected in
+favour of a second webview in the same window; the reasoning, and the iframe's
+specific problems, are in `DECISIONS.md`.
 
-Likely answer: stop relying on the failure signal. The fingerprint is already
-stored in the config, so the cert can be pre-authorised before any load —
-build a `gio::TlsCertificate` with `from_pem()` and call
-`allow_tls_certificate_for_host` up front. That needs the cert's PEM, which
-means either storing it alongside the fingerprint or fetching it with a
-handshake at startup. Decide before building.
+Still true and still useful if the iframe is ever revisited: Proxmox sends no
+`X-Frame-Options` and no CSP, so framing itself is allowed (checked
+2026-10-21).
 
-Known safe: Proxmox sends no `X-Frame-Options` and no CSP, so framing itself
-is allowed (checked 2026-10-21).
+Built 2026-10-21 as a **child webview**, not an iframe — see `DECISIONS.md`,
+"One window with tabs", for why and for what that rules out.
 
-Isolation still has to hold: a remote origin inside our own page must not
-reach app commands. Tauri gates IPC by origin, so as long as no capability
-lists the Proxmox URL under `remote.urls`, it cannot — but this becomes an
-argument from origin rules rather than something visible at a glance, which
-is the trade-off noted under Q4.1.
+- Q14.1 / Q14.2 **moot, not answered.** Both existed only because of the
+  iframe design. The Proxmox page is still a main-frame load, so F3's pinning
+  works unchanged and no certificate PEM needs storing. Q14.1 (does
+  `load-failed-with-tls-errors` fire for subframes?) is still genuinely
+  unknown — the GIR docs say only "when a TLS error occurs during a load
+  operation" — and would have to be tested if anyone revisits the iframe.
 
-Open questions:
-- Q14.1 Does `load-failed-with-tls-errors` fire for subframe loads? (Test
-  before designing around it.)
-- Q14.2 Store the node's cert PEM in the config next to the fingerprint, or
-  fetch it at startup with a handshake?
+Unverified: everything visual. The geometry, tab switching, and whether the
+panel still opens signed in have not been seen running — `[~]` until they
+have been.
 
 ---
 

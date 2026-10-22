@@ -130,6 +130,44 @@ via `webkit2gtk`'s `allow_tls_certificate_for_host`.
 - **Q16.4 `default` means "last used"** — written on every successful
   connect, used only to preselect a row. It never auto-connects.
 
+### One window with tabs (F14, 2026-10-21)
+The Proxmox UI is a **child webview** in the main window
+(`Window::add_child`, behind tauri's `unstable` feature), not an `<iframe>`.
+
+Why: it keeps the Proxmox page a *main-frame* load, so F3's certificate
+pinning — which hangs off WebKitGTK's `load-failed-with-tls-errors` — keeps
+working untouched, and `window.open`, which is how Proxmox opens consoles and
+which works today, behaves as it did in the separate window. Both of F14's
+open questions became **moot rather than answered**: whether that signal
+fires for subframes (Q14.1) and where to keep the certificate PEM for
+pre-authorisation (Q14.2) only mattered to the iframe design.
+
+Rejected: the `<iframe>`. It would have meant rebuilding pinning as
+pre-authorisation (storing the PEM in the config, or a handshake at startup),
+reduced isolation to an argument from origin rules rather than something
+visible at a glance, and reopened `window.open`.
+
+Accepted costs: an unstable API surface, and geometry managed by hand.
+
+- **The capability is scoped by `webviews`, not `windows`.** A window-scoped
+  capability applies to *every* webview in that window, so the previous
+  `windows: ["main"]` would have granted `core:default` to the Proxmox
+  webview once it moved inside the main window. tauri-utils says so in its
+  own docs ("prefer specifying webviews ... for fine grained access
+  control"), and `resolve_access` requires
+  `origin.matches(context) && (webview matches || window matches)` — the
+  local-only origin gate would have denied it anyway, but a hard rule should
+  not rest on one mechanism.
+- **`auto_resize()` is deliberately not used.** It stores position and size
+  as *proportions* of the window, so a fixed 36px tab bar offset becomes 72px
+  at double the window height. The webview is repositioned on
+  `WindowEvent::Resized` instead, from a handler registered once in `setup` —
+  Tauri accumulates window event handlers, so registering per connect would
+  stack duplicates.
+- **The tab bar height is duplicated** between `TAB_BAR` in `commands.rs` and
+  `--tab-bar-height` in `ui/style.css`. Nothing keeps them in sync; if they
+  diverge the webview either covers the tabs or leaves a gap.
+
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
 be private and short-lived.

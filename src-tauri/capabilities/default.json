@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main window (local UI only)",
-  "windows": ["main"],
+  "description": "Permissions for the local UI webview only. Scoped by webview label, NOT by window: a window-scoped capability applies to every webview in that window, which would grant these permissions to the admin panel's webview (F14) now that it lives in the main window. The admin webview is deliberately unnamed here.",
+  "webviews": ["main"],
   "permissions": ["core:default"]
 }

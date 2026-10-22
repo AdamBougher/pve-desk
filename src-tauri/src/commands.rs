@@ -5,15 +5,27 @@ use crate::api::{self, Guest, Session};
 use crate::config::{self, Config, HostConfig};
 use crate::error::{Error, Result};
 use crate::{secrets, spice, AppState};
-use tauri::webview::Cookie;
-use tauri::{AppHandle, Emitter, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::webview::{Cookie, WebviewBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl, Window,
+};
 
-/// Label of the admin panel window.
+/// Label of the admin panel's webview (F14).
 ///
-/// Deliberately absent from `capabilities/default.json`: that window loads the
-/// remote Proxmox UI, and no capability naming it means it cannot reach a
-/// single app command (CLAUDE.md hard rule).
-const ADMIN_WINDOW: &str = "admin";
+/// Deliberately absent from `capabilities/default.json`: it loads the remote
+/// Proxmox UI, and no capability naming it means it cannot reach a single app
+/// command (CLAUDE.md hard rule). Note the capability names `webviews`, not
+/// `windows` — a window-scoped capability applies to *every* webview in that
+/// window, which would hand this one `core:default`.
+const ADMIN_WEBVIEW: &str = "admin";
+
+/// Label of the window and local webview the frontend runs in.
+const MAIN: &str = "main";
+
+/// Height of the local tab bar, in logical pixels. The admin webview is
+/// positioned below it, so this must match `--tab-bar-height` in
+/// `ui/style.css` or the bar is either covered or leaves a gap.
+const TAB_BAR: f64 = 36.0;
 
 /// Log in again with the entry's keyring password, replacing the stored
 /// session (F2).
@@ -292,16 +304,53 @@ pub async fn open_spice(
     spice::launch(&cfg.remote_viewer_path, &node, vmid, &data).await
 }
 
-/// F4: open the Proxmox web UI in its own window, already logged in.
+/// Where the admin webview sits: the full client area below the tab bar.
+fn admin_bounds(window: &Window) -> Result<(LogicalPosition<f64>, LogicalSize<f64>)> {
+    let scale = window.scale_factor()?;
+    let size = window.inner_size()?.to_logical::<f64>(scale);
+    Ok((
+        LogicalPosition::new(0.0, TAB_BAR),
+        LogicalSize::new(size.width, (size.height - TAB_BAR).max(0.0)),
+    ))
+}
+
+/// Keep the admin webview matched to the window.
 ///
-/// The window starts blank so the session ticket can be installed before any
-/// request goes out, then navigates to the node. WebKitGTK uses the system
-/// trust store, so this only renders once the Proxmox cluster CA is trusted
-/// on this machine — otherwise it shows a TLS error page.
+/// Registered once as a resize handler in `lib.rs`, not per call — Tauri
+/// accumulates window event handlers, so registering it on each connect would
+/// stack duplicates. `auto_resize()` is deliberately not used: it stores
+/// position and size as *proportions* of the window, so a fixed-height tab bar
+/// would drift (at 700px tall a 36px offset becomes 72px at 1400px tall).
+pub fn relayout_admin(app: &AppHandle) {
+    let (Some(webview), Some(window)) = (app.get_webview(ADMIN_WEBVIEW), app.get_window(MAIN))
+    else {
+        return;
+    };
+    if let Ok((pos, size)) = admin_bounds(&window) {
+        let _ = webview.set_position(pos);
+        let _ = webview.set_size(size);
+    }
+}
+
+/// F4/F14: show the Proxmox web UI, already logged in, as a webview inside
+/// the main window below the tab bar.
+///
+/// The webview starts blank so the session ticket can be installed before any
+/// request goes out, then navigates to the node. It stays a *main-frame* load
+/// rather than an iframe, which is what lets the certificate pinning below
+/// keep working unchanged.
 #[tauri::command]
 pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    if let Some(existing) = app.get_webview_window(ADMIN_WINDOW) {
-        existing.set_focus()?;
+    let window = app
+        .get_window(MAIN)
+        .ok_or(Error::Config("main window is gone".into()))?;
+
+    // Already built: just bring it back and re-fit it.
+    if let Some(existing) = app.get_webview(ADMIN_WEBVIEW) {
+        let (pos, size) = admin_bounds(&window)?;
+        existing.set_position(pos)?;
+        existing.set_size(size)?;
+        existing.show()?;
         return Ok(());
     }
 
@@ -314,12 +363,12 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
         .map_err(|e| Error::Config(format!("bad base url: {e}")))?;
     let blank: Url = "about:blank".parse().expect("valid url");
 
-    let window = WebviewWindowBuilder::new(&app, ADMIN_WINDOW, WebviewUrl::External(blank))
-        .title("Proxmox")
-        .inner_size(1280.0, 860.0)
-        .center()
-        .focused(true)
-        .build()?;
+    let (pos, size) = admin_bounds(&window)?;
+    let webview = window.add_child(
+        WebviewBuilder::new(ADMIN_WEBVIEW, WebviewUrl::External(blank)),
+        pos,
+        size,
+    )?;
 
     // Hand the session ticket over so the panel opens already logged in,
     // rather than showing the Proxmox login form.
@@ -328,19 +377,31 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
         .path("/")
         .secure(true)
         .build();
-    window.set_cookie(cookie)?;
+    webview.set_cookie(cookie)?;
 
     #[cfg(target_os = "linux")]
     setup_admin_webview(
-        &window,
+        &webview,
         app.clone(),
         host.name.clone(),
         host.host.clone(),
         url.to_string(),
     )?;
     #[cfg(not(target_os = "linux"))]
-    window.navigate(url)?;
+    webview.navigate(url)?;
 
+    Ok(())
+}
+
+/// F14: switch back to the local Guests tab.
+///
+/// The webview is hidden rather than closed, so returning to the Admin tab
+/// doesn't reload the Proxmox UI or need another ticket.
+#[tauri::command]
+pub fn hide_admin_panel(app: AppHandle) -> Result<()> {
+    if let Some(webview) = app.get_webview(ADMIN_WEBVIEW) {
+        webview.hide()?;
+    }
     Ok(())
 }
 
@@ -361,7 +422,7 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
 /// app only.
 #[cfg(target_os = "linux")]
 fn setup_admin_webview(
-    window: &tauri::WebviewWindow,
+    webview: &tauri::Webview,
     app: AppHandle,
     entry: String,
     hostname: String,
@@ -372,7 +433,7 @@ fn setup_admin_webview(
     use webkit2gtk::glib;
     use webkit2gtk::{WebContextExt, WebViewExt};
 
-    window.with_webview(move |platform| {
+    webview.with_webview(move |platform| {
         let webview = platform.inner();
         // One retry only: if the load still fails after allowing the cert,
         // let the error page stand instead of looping.
@@ -458,14 +519,16 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
     }
 }
 
-/// Drop the session and close the admin panel.
+/// Drop the session and tear down the admin panel.
 ///
 /// Saved credentials are left alone: the config file and the keyring entry
 /// stay, so the next launch auto-logs in again.
 #[tauri::command]
 pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clear();
-    if let Some(panel) = app.get_webview_window(ADMIN_WINDOW) {
+    // Closed, not hidden: the webview holds a session cookie, and the next
+    // login may be a different connection entirely.
+    if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {
         panel.close()?;
     }
     Ok(())

@@ -7,6 +7,19 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- F14: local tab strip. Height must match TAB_BAR in commands.rs and
+       --tab-bar-height in style.css, or the admin webview covers it or
+       leaves a gap. The status line lives here because the admin webview
+       covers everything below this strip. -->
+  <nav id="tabbar">
+    <div id="tabs" hidden>
+      <button id="tab-admin" class="tab" aria-pressed="false">Admin</button>
+      <button id="tab-guests" class="tab" aria-pressed="false">Guests</button>
+    </div>
+    <p id="status" role="status"></p>
+  </nav>
+
+  <div id="content">
   <!-- F16: the app always opens here -->
   <section id="launcher" hidden>
     <header>
@@ -61,7 +74,6 @@
                aria-label="Search guests by name, ID, node or tag"
                autocomplete="off">
         <button id="refresh">Refresh</button>
-        <button id="admin">Admin panel</button>
         <button id="logout">Log out</button>
       </div>
     </header>
@@ -73,7 +85,7 @@
     </table>
   </section>
 
-  <p id="status" role="status"></p>
+  </div>
 
   <script src="main.js"></script>
 </body>

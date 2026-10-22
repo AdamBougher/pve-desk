@@ -13,7 +13,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# "unstable" is required for Window::add_child, i.e. more than one webview in
+# a window (F14). It is an unstable API surface by Tauri's own labelling, so
+# the version stays pinned to a minor release rather than floating.
+tauri = { version = "2", features = ["unstable"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

@@ -100,8 +100,24 @@ pub fn run() {
             commands::power_action,
             commands::open_spice,
             commands::open_admin_panel,
+            commands::hide_admin_panel,
             commands::logout,
         ])
+        .setup(|app| {
+            // F14: keep the admin webview fitted to the window. Registered
+            // once, here, rather than when the webview is created — Tauri
+            // accumulates window event handlers, so doing it per connect
+            // would stack a duplicate every time.
+            if let Some(window) = tauri::Manager::get_window(app, "main") {
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Resized(_)) {
+                        commands::relayout_admin(&handle);
+                    }
+                });
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running pve-desk");
 }
