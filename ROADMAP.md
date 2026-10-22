@@ -15,54 +15,27 @@ the feature is built, and the answers go to `DECISIONS.md`.
 
 ## v1 (current scope)
 
-### F14. One window with tabs
-`[~]` Fold the two windows into one: a slim local tab bar with **Admin** (the
-Proxmox UI) and **Guests** (the F5 list), instead of a separate panel window.
+**The v1 feature work is done.** Everything that was in scope has shipped and
+been confirmed against a real node; what remains is making it installable.
 
-Asked for 2026-10-21: "keeping one window that has tabs would be nice", with
-the login window kept around and the running list living in it.
+### F12. Packaging and release
+`[ ]` A `.desktop` entry, an icon, and something installable.
 
-The original plan was an `<iframe>`, which would have put a remote origin
-inside our own page and broken F3's certificate pinning. That was rejected in
-favour of a second webview in the same window; the reasoning, and the iframe's
-specific problems, are in `DECISIONS.md`.
+**Q12.1 answered 2026-10-21: AppImage, plus an Arch package.** AppImage for
+everyone else — one file, no distro assumptions, and Tauri bundles it
+already. Arch because that is what this is developed and run on, which makes
+it the one package that gets used daily rather than only tested.
 
-Still true and still useful if the iframe is ever revisited: Proxmox sends no
-`X-Frame-Options` and no CSP, so framing itself is allowed (checked
-2026-10-21).
+To do:
+- Set `bundle.targets` to AppImage only. `deb` and `nsis` are currently
+  listed and neither is being released: Windows has no tabs (Linux first),
+  and nobody is asking for a `.deb`.
+- Write a `PKGBUILD`. Not a Tauri bundle target, so it is hand-written.
+- Ship a `.desktop` entry and check the icon renders in a launcher — note
+  the icon's dark-background bug in Known gaps, which this feature is the
+  first to actually expose.
+- Decide where releases live (GitHub releases, AUR, or both).
 
-Built 2026-10-21 as a **child webview**, not an iframe — see `DECISIONS.md`,
-"One window with tabs", for why and for what that rules out.
-
-- Q14.1 / Q14.2 **moot, not answered.** Both existed only because of the
-  iframe design. The Proxmox page is still a main-frame load, so F3's pinning
-  works unchanged and no certificate PEM needs storing. Q14.1 (does
-  `load-failed-with-tls-errors` fire for subframes?) is still genuinely
-  unknown — the GIR docs say only "when a TLS error occurs during a load
-  operation" — and would have to be tested if anyone revisits the iframe.
-
-Took three attempts, because GTK refuses both of the obvious approaches:
-a child webview can be neither positioned nor capped to a fixed height. The
-measurements are in `DECISIONS.md`. The tab bar is now a native GTK strip on
-Linux, with one webview visible at a time; Windows and macOS keep the page's
-own tab bar.
-
-Confirmed working by the user 2026-10-21: the native strip switches between
-the admin panel and the guest list, and the panel still opens signed in.
-
-The Admin button is insensitive until a session exists, and the pair is
-styled with GTK's own "linked" segmented-control class so it follows the
-running theme.
-
-Rough edges left:
-- The **Guests** button stays live before connecting, where it does nothing
-  visible. Only Admin is greyed, since that was the one that could error.
-- **Windows and macOS have no tabs** — the panel stays a separate window
-  there, and that is now a deliberate ordering rather than an oversight
-  (see "Linux first" in `DECISIONS.md`). Folding it in needs a per-platform
-  equivalent of the native strip; it belongs to F17.
-
----
 
 ## Later (not in v1)
 
@@ -306,16 +279,6 @@ Open question:
 ### F11. Favourites / pinned VMs
 `[ ]` Pin VMs to the top of the list.
 
-### F12. Desktop entry + packaging
-`[ ]` `.desktop` file, icon, and a package (AppImage, `.deb`, or Flatpak).
-
-Open question for later:
-- Q12.1 Which package format? The distro half is already answered: Arch /
-  CachyOS, KDE Plasma on Wayland (see `DECISIONS.md`, Environment facts), so
-  the daily-use answer is a `PKGBUILD` or just `cargo run`. The question is
-  what to publish for everyone else — AppImage, `.deb`, or Flatpak. CI
-  already builds on Debian-family and Windows runners.
-
 ---
 
 ## Open questions from shipped features
@@ -334,6 +297,13 @@ done. Not big enough to be features of their own; too real to lose.
 - **Keyring fallback** — if the keyring is locked or unavailable, fall back to
   a password prompt. Never built; the keyring has always been available on
   this machine (see Q2.1), so it has never been exercised.
+- **The Guests tab button stays live before connecting** (F14), where it does
+  nothing visible. Only Admin is greyed, because Admin was the one that could
+  produce an error.
+- **The status line is only visible on the Guests view** (F14). It sits in a
+  thin strip inside the local webview, which is hidden while the admin panel
+  is up — so certificate-pinning messages emitted during the panel's load are
+  not seen until you switch back.
 
 ---
 
@@ -343,7 +313,9 @@ Things that are built but unproven, so they can't be called working.
 
 - **Windows has never been run.** It builds in CI; that is all. Q17.3 (does
   the admin panel open already signed in under WebView2, given `set_cookie`
-  is WebKitGTK-verified only) is unanswered.
+  is WebKitGTK-verified only) is unanswered. It also has **no tab bar** — the
+  panel is a separate window there, deliberately (see "Linux first" in
+  `DECISIONS.md`).
 - **The real ~90 min ticket refresh** has never fired. Verified only with the
   threshold temporarily lowered to 10s, where two re-logins fired during an
   80-second run with no errors.

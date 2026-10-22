@@ -220,6 +220,17 @@ Windows and macOS stay buildable and stay in F17 — this is about not
 compromising the Linux UI, not about dropping them. Non-UI code stays
 portable.
 
+### Release format (2026-10-21)
+**AppImage, plus an Arch package.** AppImage for everyone else: one file, no
+distro assumptions, and Tauri bundles it already. Arch because it is what
+this is developed and run on, which makes it the one package that gets used
+daily rather than only tested.
+
+Not `.deb` (nobody has asked, and CI building on Debian is not the same as
+wanting to ship there) and not Flatpak (sandboxing would complicate Secret
+Service access and launching `remote-viewer` for F7). `nsis` stops being
+built with them: Windows has no tab bar, so it is not what gets released.
+
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
 be private and short-lived.

@@ -6,10 +6,12 @@ I wanted to be able to access my Proxmox admin GUI from a desktop app. I used
 to use Sakakun's [Proxmox-Desktop-Client](https://github.com/sakakun/Proxmox-Desktop-Client)
 for Windows, and I wanted a similar experience on Linux.
 
-Status: **working for daily use, with caveats.** Connecting, the embedded
-admin panel and its consoles are verified against a real Proxmox node. See
-`ROADMAP.md` for what is left, and `DECISIONS.md` for why things are built
-the way they are.
+Status: **v1 — feature complete for its scope, in daily use.** Connecting,
+the embedded admin panel, its consoles, the guest list and session refresh
+are all verified against a real Proxmox node. Packaging is the remaining
+work before a tagged release; see `ROADMAP.md` for that and for what was
+deliberately left out, and `DECISIONS.md` for why things are built the way
+they are.
 
 Most of the code here was written by an AI model under my direction — see
 [AI assistance](#ai-assistance) before you run it.
@@ -27,10 +29,11 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
 - **Saved logins.** Password lives in the system keyring; host, port,
   username and realm in a config file. Several connections can be saved;
   one is live at a time.
+- **One window, two tabs.** An **Admin** / **Guests** strip switches between
+  the Proxmox web UI and the guest list without leaving the window. The
+  Admin tab is greyed out until you are connected.
 - **Embedded admin panel.** The full Proxmox web UI, already signed in — no
-  login form. Opens automatically on connect. On Linux it shares the main
-  window with the guest list behind an **Admin** / **Guests** tab strip;
-  elsewhere it opens as a separate window.
+  login form. Opens automatically on connect.
 - **Certificate verification.** The API client checks the node against the
   OS trust store first and falls back to the fingerprint you confirmed, so a
   real certificate (Tailscale, Let's Encrypt, or a CA you imported) works
@@ -57,10 +60,24 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
   keyring entry, which is a decision still open).
 - **Native power controls** were cut: the admin panel already does this
   better. The backend remains if a native UI is ever revisited (F15).
-- **Linux only** by verification. Windows builds in CI but has never been
-  run. See F17.
+- **Packaging.** No release is published yet. The plan is an **AppImage**
+  for general use and an **Arch package** for the machine this is actually
+  developed and run on (F12).
+- **Linux first, by choice.** Windows and macOS still build, but where the
+  UI can't be shared Linux wins — the tab strip is a GTK widget, so on other
+  platforms the admin panel stays a separate window. See F17 and "Linux
+  first" in `DECISIONS.md`.
 
 `ROADMAP.md` keeps a "Known gaps" list of what is built but still unproven.
+
+## Installing
+
+Nothing is published yet. When it is, there will be two routes:
+
+- **AppImage** — one file, no distro assumptions, run it and go.
+- **Arch package** — a `PKGBUILD`, since Arch is what this runs on daily.
+
+Until then, build it yourself.
 
 ## Building
 
