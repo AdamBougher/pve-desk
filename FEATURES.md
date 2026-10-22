@@ -35,13 +35,38 @@ Decisions (2026-10-20):
   starts on a disabled placeholder and is `required`, so setup cannot be
   submitted without an explicit choice.
 
-### F2. Saved login + auto-login
-`[~]` On launch, read the password from the keyring and call
-`POST /api2/json/access/ticket` to get a session ticket + CSRF token.
+### F2. Saved login + session refresh
+`[x]` Read the password from the keyring and call
+`POST /api2/json/access/ticket` for a session ticket + CSRF token, then keep
+that session alive for as long as it is used.
 
-- Re-login quietly before the ticket expires (tickets last ~2h; refresh
-  every ~90 min)
-- If the keyring is locked or unavailable, fall back to a password prompt
+- Startup auto-login was **replaced by the launcher** (F16): the app always
+  opens on the connection list and connects when you pick one.
+- Re-login quietly before the ticket expires (tickets last ~2h; refreshed
+  past ~90 min)
+- If the keyring is locked or unavailable, fall back to a password prompt —
+  **not built**; the keyring has always been available here (Q2.1), so this
+  has never been exercised.
+
+Built 2026-10-21. Decided: **refresh on demand, retry on 401** rather than a
+background timer. Before an authenticated call, a session older than ~90 min
+is renewed; if the node rejects a ticket anyway, the app logs in once more and
+retries that call.
+
+Why not a timer: age alone is not trustworthy. `Instant` uses
+CLOCK_MONOTONIC, which does not advance while the machine is suspended, so a
+laptop that slept through the ticket's lifetime still looks fresh. The 401
+path is ground truth and is needed either way, which left the timer earning
+very little. It also avoids a task whose lifetime has to track connect,
+logout and switching connections.
+
+Verified against the live node: with the threshold temporarily lowered to 10s,
+two automatic re-logins fired during an 80-second run and the guest list kept
+loading throughout, with no errors.
+
+Not verified: the real ~90 min path (it would take 90 minutes), and recovery
+when re-login genuinely fails — the `session-lost` path below has never been
+triggered for real.
 
 Open questions:
 - Q2.1 **Answered by probing the machine (2026-10-20).** KDE Plasma on
@@ -51,10 +76,13 @@ Open questions:
   `keyring` crate's Secret Service backend works as-is. A fallback password
   prompt is therefore not needed to get connected, but is still worth having
   for a locked keyring.
-- Q2.2 If auto-login fails (wrong password, host down), what should
-  happen: show an error + retry button, or reopen setup? **Still open.**
-  Current behaviour: `main.js` shows the error text and falls back to the
-  setup screen.
+- Q2.2 **Answered 2026-10-21: return to the launcher with the reason.** The
+  original framing (error+retry vs reopen setup) was overtaken by F16 — there
+  is no setup screen any more, there is a launcher. When the node rejects the
+  ticket *and* re-login fails, the backend drops the session and emits
+  `session-lost`; the UI stops the 30s poll, clears the list and goes back to
+  the launcher showing why. Decided rather than asked, since the options
+  collapsed to one sensible answer once the launcher existed.
 
 ### F3. Certificate pinning
 `[x]` Proxmox uses a self-signed cert by default. On first connect, show the

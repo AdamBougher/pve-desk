@@ -18,6 +18,8 @@ pub enum Error {
     Api(String),
     #[error("certificate not trusted (SHA-256 {0})")]
     CertUnverified(String),
+    #[error("session rejected by the node")]
+    Unauthorized,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("window error: {0}")]

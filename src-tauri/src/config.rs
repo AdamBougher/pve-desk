@@ -77,14 +77,6 @@ impl Config {
         }
     }
 
-    /// The host entry named by `default`.
-    pub fn active(&self) -> Result<&HostConfig> {
-        self.hosts
-            .iter()
-            .find(|h| h.name == self.default)
-            .ok_or_else(|| Error::Config(format!("no host entry named {:?}", self.default)))
-    }
-
     /// Look up one entry by its id.
     pub fn host(&self, name: &str) -> Result<&HostConfig> {
         self.hosts
@@ -235,7 +227,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.remote_viewer_path, default_viewer());
-        let h = cfg.active().unwrap();
+        let h = cfg.host(&cfg.default).unwrap();
         assert_eq!(h.port, 8006);
         assert_eq!(h.cert_fingerprint, None);
     }
@@ -256,7 +248,7 @@ mod tests {
             remote_viewer_path: default_viewer(),
             hosts: vec![host(), other],
         };
-        assert_eq!(cfg.active().unwrap().host, "10.0.0.5");
+        assert_eq!(cfg.host(&cfg.default).unwrap().host, "10.0.0.5");
     }
 
     #[test]
@@ -266,7 +258,7 @@ mod tests {
             remote_viewer_path: default_viewer(),
             hosts: vec![host()],
         };
-        assert!(cfg.active().is_err());
+        assert!(cfg.host(&cfg.default).is_err());
     }
 
     #[test]
@@ -277,7 +269,7 @@ mod tests {
         changed.host = "192.168.1.99".into();
         cfg.upsert_host(changed);
         assert_eq!(cfg.hosts.len(), 1);
-        assert_eq!(cfg.active().unwrap().host, "192.168.1.99");
+        assert_eq!(cfg.host(&cfg.default).unwrap().host, "192.168.1.99");
         assert_eq!(cfg.remote_viewer_path, "/opt/bin/remote-viewer");
     }
 
@@ -298,7 +290,7 @@ mod tests {
         cfg.upsert_host(changed);
         assert_eq!(cfg.hosts.len(), 2);
         assert_eq!(cfg.default, "main");
-        assert_eq!(cfg.active().unwrap().host, "192.168.1.99");
+        assert_eq!(cfg.host(&cfg.default).unwrap().host, "192.168.1.99");
     }
 
     #[test]
@@ -309,7 +301,7 @@ mod tests {
         work.host = "10.0.0.5".into();
         cfg.upsert_host(work);
         assert_eq!(cfg.hosts.len(), 2);
-        assert_eq!(cfg.active().unwrap().host, "10.0.0.5");
+        assert_eq!(cfg.host(&cfg.default).unwrap().host, "10.0.0.5");
     }
 
     #[test]

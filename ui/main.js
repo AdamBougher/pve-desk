@@ -10,6 +10,16 @@ const status = (msg) => { $("status").textContent = msg || ""; };
 // The backend reports what it did with the node's TLS certificate (F3/F4).
 listen("admin-cert", (e) => status(`Admin panel: ${e.payload}`));
 
+// F2/Q2.2: the node stopped accepting the session and re-login failed too.
+// Go back to the launcher rather than retrying every 30s against a dead one.
+listen("session-lost", async (e) => {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  $("guests").replaceChildren();
+  await showLauncher();
+  status(`Session ended: ${e.payload}`);
+});
+
 let refreshTimer = null;
 
 function show(section) {

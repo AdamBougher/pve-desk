@@ -264,13 +264,27 @@ pub async fn login(host: &HostConfig, password: &str, trust: Option<&str>) -> Re
     })
 }
 
+/// Map a response to an error the caller can act on: a 401 means the ticket
+/// is no longer accepted and the call is worth retrying after a re-login.
+fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(Error::Unauthorized);
+    }
+    Ok(resp.error_for_status()?)
+}
+
 impl Session {
     fn cookie(&self) -> String {
         format!("PVEAuthCookie={}", self.ticket)
     }
 
     /// True once the ticket is old enough that we should re-login (F2).
-    #[allow(dead_code)]
+    ///
+    /// Age alone is not sufficient: `Instant` uses CLOCK_MONOTONIC, which
+    /// does not advance while the machine is suspended, so a laptop that
+    /// slept through the ticket's lifetime still looks fresh. The 401 retry
+    /// in `commands.rs` is what actually guarantees correctness; this just
+    /// avoids a failed round trip in the common case.
     pub fn needs_refresh(&self) -> bool {
         self.obtained_at.elapsed().as_secs() > 90 * 60
     }
@@ -303,8 +317,8 @@ impl Session {
             .get(&url)
             .header("Cookie", self.cookie())
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = check(resp)?;
         let body: ApiResponse<Vec<Guest>> = resp.json().await?;
         Ok(body.data)
     }
@@ -324,13 +338,14 @@ impl Session {
             "{}/api2/json/nodes/{node}/{kind}/{vmid}/status/{action}",
             self.base_url
         );
-        self.http
+        let resp = self
+            .http
             .post(&url)
             .header("Cookie", self.cookie())
             .header("CSRFPreventionToken", &self.csrf_token)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        check(resp)?;
         Ok(())
     }
 
@@ -351,8 +366,8 @@ impl Session {
             .header("Cookie", self.cookie())
             .header("CSRFPreventionToken", &self.csrf_token)
             .send()
-            .await?
-            .error_for_status()?;
+            .await?;
+        let resp = check(resp)?;
         let body: ApiResponse<serde_json::Map<String, serde_json::Value>> = resp.json().await?;
         Ok(body.data)
     }
