@@ -118,7 +118,7 @@ Small and mechanical:
   and needs a per-OS one. The outstanding 0600 TODO in `spice.rs` is Unix-only,
   so Windows needs a different approach (ACLs, or a per-user temp dir).
 - Bundle targets: add `msi`/`nsis` and `dmg`; icons need `.ico` and `.icns`,
-  which `tauri icon` generates from `icons/icon.svg`.
+  which `tauri icon` generates from `src-tauri/icons/icon.svg`.
 - `cfg`-gate the NVIDIA render workaround in `lib.rs` — harmless elsewhere,
   but misleading.
 
@@ -161,7 +161,7 @@ Phases:
    no pinning).
 2. CI matrix on `ubuntu-latest` + `windows-latest`. This is the only
    cross-platform verification available without the hardware in hand.
-3. Packaging: `msi`/`nsis`, `.ico` from `icons/icon.svg`.
+3. Packaging: `msi`/`nsis`, `.ico` from `src-tauri/icons/icon.svg`.
 4. TLS: the native-roots switch above, plus a documented CA-import step.
 
 Open question:
@@ -272,7 +272,11 @@ Open question:
 `[ ]` `.desktop` file, icon, and a package (AppImage, `.deb`, or Flatpak).
 
 Open question for later:
-- Q12.1 Which distro are you on, and which package format do you want?
+- Q12.1 Which package format? The distro half is already answered: Arch /
+  CachyOS, KDE Plasma on Wayland (see `DECISIONS.md`, Environment facts), so
+  the daily-use answer is a `PKGBUILD` or just `cargo run`. The question is
+  what to publish for everyone else — AppImage, `.deb`, or Flatpak. CI
+  already builds on Debian-family and Windows runners.
 
 ---
 
@@ -311,3 +315,11 @@ Things that are built but unproven, so they can't be called working.
 - **The `.vv` file is written world-readable and never deleted** (F7). Must be
   0600 and short-lived before SPICE is ever enabled.
 - **`spice.rs` has no tests**, despite `.vv` formatting being a pure function.
+- **Half the app icon disappears on dark backgrounds.**
+  `src-tauri/icons/icon.svg` has two paths: the X carries `fill:#e57000`, but
+  the top and bottom chevrons carry no `fill` at all and so default to
+  black. Against a dark panel or tray, only the orange X is visible. Raised
+  2026-10-21, no fix chosen — give the first path an explicit light fill, or
+  add a contrasting backplate. Blocks nothing, but the generated PNGs and
+  `.ico` are built from this file, so F10 (tray) and F12 (packaging) both
+  ship it. Regenerate with `tauri icon` after any change.

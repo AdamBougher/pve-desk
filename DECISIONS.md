@@ -143,12 +143,14 @@ Escape hatches, because the right path is GPU-specific:
 `PVE_DESK_RENDER=raw` sets nothing.
 
 ### Project-level
-- **Rust**, **Tauri 2** (WebKitGTK on Linux), plain HTML/CSS/JS frontend, no
-  Node build step.
-- Password login saved in the system keyring; **no SSH keys.** Single-factor
-  sign-in, so the client can fetch a ticket without an interactive prompt.
-- FOSS dependencies only.
-- License: **TBD.**
+These are in `CLAUDE.md` under **Decisions already made**, not repeated here:
+the language and UI shell (Rust, Tauri 2 — *not* v1), the no-build-step
+frontend, `reqwest` with rustls rather than OpenSSL, password-in-keyring with
+no SSH keys, FOSS dependencies only, and Linux-primary with Windows in scope.
+
+They live there rather than here because they are constraints that have to be
+in context while code is being written, not history to look up afterwards.
+One source each: a decision is in `CLAUDE.md` or in this file, never both.
 
 ---
 

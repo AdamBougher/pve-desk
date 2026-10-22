@@ -161,6 +161,7 @@ See F17 in `ROADMAP.md`.
 ```
 pve-desk/
 ├── CLAUDE.md            working rules + Proxmox API notes
+├── .github/workflows/   CI: fmt, clippy and tests on Linux + Windows
 ├── .devcontainer/       pinned build environment (Debian 13 + Rust 1.97.1)
 ├── rust-toolchain.toml  toolchain pin, shared by host and container
 ├── ROADMAP.md           outstanding work + open questions
