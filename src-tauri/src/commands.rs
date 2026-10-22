@@ -24,6 +24,11 @@ use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize};
 const ADMIN_WEBVIEW: &str = "admin";
 
 /// Label of the window and local webview the frontend runs in.
+///
+/// Only the Linux build needs it: the tab strip and the child admin webview
+/// both address the main window by label. Elsewhere the admin panel is its
+/// own window and nothing here looks the main one up.
+#[cfg(target_os = "linux")]
 const MAIN: &str = "main";
 
 /// Log in again with the entry's keyring password, replacing the stored

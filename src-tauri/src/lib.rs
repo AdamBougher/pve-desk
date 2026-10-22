@@ -104,16 +104,16 @@ pub fn run() {
             commands::logout,
         ])
         .setup(|app| {
-            // F14: keep the admin webview fitted to the window. Registered
-            // once, here, rather than when the webview is created — Tauri
-            // accumulates window event handlers, so doing it per connect
-            // would stack a duplicate every time.
             // F14: on Linux the tab bar is a native widget, because GTK can
             // neither position a child webview nor cap one's height. See
             // DECISIONS.md. Nothing to re-fit on resize: the GtkBox lays its
             // children out itself.
             #[cfg(target_os = "linux")]
             commands::install_native_tabs(app.handle());
+            // Everywhere else the admin panel is its own window, so there is
+            // no strip to install and nothing here touches `app`.
+            #[cfg(not(target_os = "linux"))]
+            let _ = app;
             Ok(())
         })
         .run(tauri::generate_context!())
