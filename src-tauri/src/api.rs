@@ -73,9 +73,9 @@ fn http_client(_host: &HostConfig) -> Result<reqwest::Client> {
 /// F16: can the node be reached at all? Sends no credentials.
 ///
 /// Probes `/` (the login page), **not** an API endpoint: pveproxy delays
-/// unauthenticated API responses by ~3s to slow brute-forcing, so an
-/// unauthenticated `/api2/json/*` probe costs 3 seconds and looks like a
-/// failed login attempt. Measured against the node: `/` answers in ~8ms,
+/// responses to unauthenticated `/api2/json/*` requests by ~3s, so probing
+/// one would take 3 seconds and would log a pointless failed authentication
+/// on the node every time. Measured: `/` answers in ~8ms,
 /// `/api2/json/version` without a cookie takes 3.005s.
 pub async fn reachable(host: &HostConfig) -> bool {
     let Ok(http) = reqwest::Client::builder()

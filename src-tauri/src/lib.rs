@@ -66,6 +66,7 @@ impl AppState {
 /// being chased:
 ///   - `legacy` — disable the dmabuf renderer entirely (the previous default)
 ///   - `raw`    — set nothing; WebKit's stock behaviour, crashes on NVIDIA
+#[cfg(target_os = "linux")]
 fn apply_linux_webkit_workarounds() {
     match std::env::var("PVE_DESK_RENDER").as_deref() {
         Ok("raw") => {}
@@ -83,7 +84,9 @@ fn apply_linux_webkit_workarounds() {
 }
 
 pub fn run() {
-    // Must happen before the webview starts.
+    // Must happen before the webview starts. WebKitGTK only; WebView2 and
+    // WKWebView have no equivalent problem.
+    #[cfg(target_os = "linux")]
     apply_linux_webkit_workarounds();
 
     tauri::Builder::default()
