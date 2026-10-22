@@ -210,6 +210,16 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
   `--tab-bar-height` in `ui/style.css`. Nothing keeps them in sync; if they
   diverge the local webview either clips the tabs or leaves a gap under them.
 
+### Linux first (2026-10-21)
+Where the UI can't be the same on every platform, Linux wins and the others
+wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is
+the only platform ever run, and holding its UI back to whatever all three
+can share would trade something working for something hypothetical.
+
+Windows and macOS stay buildable and stay in F17 — this is about not
+compromising the Linux UI, not about dropping them. Non-UI code stays
+portable.
+
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
 be private and short-lived.

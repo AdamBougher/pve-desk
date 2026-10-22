@@ -50,13 +50,17 @@ own tab bar.
 Confirmed working by the user 2026-10-21: the native strip switches between
 the admin panel and the guest list, and the panel still opens signed in.
 
+The Admin button is insensitive until a session exists, and the pair is
+styled with GTK's own "linked" segmented-control class so it follows the
+running theme.
+
 Rough edges left:
-- The strip is visible on the launcher too, so clicking **Admin** before
-  connecting reports an error rather than being disabled.
-- The buttons are unstyled GTK, which does not match the rest of the app.
+- The **Guests** button stays live before connecting, where it does nothing
+  visible. Only Admin is greyed, since that was the one that could error.
 - **Windows and macOS have no tabs** — the panel stays a separate window
-  there (see `DECISIONS.md`). Folding it in needs a per-platform equivalent
-  of the native strip, which is part of F17.
+  there, and that is now a deliberate ordering rather than an oversight
+  (see "Linux first" in `DECISIONS.md`). Folding it in needs a per-platform
+  equivalent of the native strip; it belongs to F17.
 
 ---
 

@@ -51,6 +51,7 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 /// seconds against a connection that is gone (Q2.2).
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
+    set_admin_tab_enabled(app, false);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -149,6 +150,7 @@ pub enum ConnectOutcome {
 /// certificate in the UI; it is pinned to the entry once the login succeeds.
 #[tauri::command]
 pub async fn connect(
+    app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     trust_fingerprint: Option<String>,
@@ -165,6 +167,7 @@ pub async fn connect(
         Err(e) => return Err(e),
     };
     state.set_only(name.clone(), session);
+    set_admin_tab_enabled(&app, true);
 
     // Persist what the user just confirmed, so later connects verify against
     // it instead of asking again.
@@ -187,24 +190,36 @@ pub async fn connect(
     Ok(ConnectOutcome::Connected)
 }
 
+/// The "Add a connection" form (F16).
+///
+/// Grouped into a struct so the command stays inside clippy's argument limit,
+/// and so the password has exactly one place to live on the way through. No
+/// `Debug`: it must never be printable (CLAUDE.md hard rule).
+#[derive(serde::Deserialize)]
+pub struct NewConnection {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub realm: String,
+    pub password: String,
+}
+
 /// F1/F16: test the login, then save the entry and its password.
 #[tauri::command]
 pub async fn add_connection(
+    app: AppHandle,
     state: State<'_, AppState>,
-    host: String,
-    port: u16,
-    username: String,
-    realm: String,
-    password: String,
+    fields: NewConnection,
     trust_fingerprint: Option<String>,
 ) -> Result<ConnectOutcome> {
-    let host = host.trim().to_string();
-    let username = username.trim().to_string();
-    let realm = realm.trim().to_string();
+    let password = fields.password;
+    let host = fields.host.trim().to_string();
+    let username = fields.username.trim().to_string();
+    let realm = fields.realm.trim().to_string();
     let entry = HostConfig {
         name: HostConfig::id(&username, &realm, &host),
         host,
-        port,
+        port: fields.port,
         username,
         realm,
         // Pinned below, once the login proves the certificate was accepted.
@@ -234,6 +249,7 @@ pub async fn add_connection(
     config::save(&cfg)?;
 
     state.set_only(name, session);
+    set_admin_tab_enabled(&app, true);
     Ok(ConnectOutcome::Connected)
 }
 
@@ -328,6 +344,48 @@ pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
     };
 }
 
+// The Admin button, so its sensitivity can be toggled with the session.
+// A thread-local rather than app state because GTK widgets are not `Send`:
+// everything that touches it runs on the main thread, either inside
+// `with_webview` or via `run_on_main_thread`.
+#[cfg(target_os = "linux")]
+thread_local! {
+    static ADMIN_TAB: std::cell::RefCell<Option<gtk::Button>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Grey the Admin tab out until there is a session to show.
+///
+/// Without this the button is live on the launcher, where pressing it can
+/// only produce an error.
+#[cfg(target_os = "linux")]
+pub fn set_admin_tab_enabled(app: &AppHandle, enabled: bool) {
+    let _ = app.run_on_main_thread(move || {
+        ADMIN_TAB.with_borrow(|tab| {
+            if let Some(button) = tab {
+                gtk::prelude::WidgetExt::set_sensitive(button, enabled);
+            }
+        });
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn set_admin_tab_enabled(_app: &AppHandle, _enabled: bool) {}
+
+/// Style for the tab strip. Uses the theme's own colours rather than fixed
+/// ones, so it follows whatever GTK theme is in use.
+#[cfg(target_os = "linux")]
+const TAB_CSS: &str = "
+.pve-tabstrip {
+  padding: 4px 6px;
+  border-bottom: 1px solid @borders;
+}
+.pve-tabstrip button {
+  padding: 1px 18px;
+  min-height: 26px;
+}
+";
+
 /// The tab bar, as real GTK buttons above both webviews.
 ///
 /// Built once at startup. Switching is driven from here rather than from the
@@ -336,7 +394,7 @@ pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
 /// to get stuck.
 #[cfg(target_os = "linux")]
 pub fn install_native_tabs(app: &AppHandle) {
-    use gtk::prelude::{BoxExt, ButtonExt, Cast, WidgetExt};
+    use gtk::prelude::{BoxExt, ButtonExt, Cast, CssProviderExt, StyleContextExt, WidgetExt};
 
     let Some(local) = app.get_webview(MAIN) else {
         return;
@@ -350,16 +408,35 @@ pub fn install_native_tabs(app: &AppHandle) {
             return;
         };
 
-        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        strip.set_margin_start(6);
-        strip.set_margin_end(6);
-        strip.set_margin_top(4);
-        strip.set_margin_bottom(4);
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        strip.style_context().add_class("pve-tabstrip");
+
+        // "linked" is GTK's own segmented-control look, so the pair reads as
+        // one control in whatever theme is running.
+        let group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        group.style_context().add_class("linked");
 
         let admin = gtk::Button::with_label("Admin");
         let guests = gtk::Button::with_label("Guests");
-        strip.pack_start(&admin, false, false, 0);
-        strip.pack_start(&guests, false, false, 0);
+        group.pack_start(&admin, false, false, 0);
+        group.pack_start(&guests, false, false, 0);
+        strip.pack_start(&group, false, false, 0);
+
+        // Nothing to show until a session exists; `set_admin_tab_enabled`
+        // turns it on at connect and off again at logout or session loss.
+        admin.set_sensitive(false);
+        ADMIN_TAB.with_borrow_mut(|tab| *tab = Some(admin.clone()));
+
+        if let Some(screen) = gtk::gdk::Screen::default() {
+            let provider = gtk::CssProvider::new();
+            if provider.load_from_data(TAB_CSS.as_bytes()).is_ok() {
+                gtk::StyleContext::add_provider_for_screen(
+                    &screen,
+                    &provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
+        }
 
         let app_admin = app.clone();
         admin.connect_clicked(move |_| {
@@ -623,6 +700,7 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
 #[tauri::command]
 pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clear();
+    set_admin_tab_enabled(&app, false);
     // Closed, not hidden: the webview holds a session cookie, and the next
     // login may be a different connection entirely.
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {

@@ -34,10 +34,13 @@ drive arbitrary API calls.
   in the config file. No SSH keys. The account signs in with a single factor,
   so the client can fetch a ticket without an interactive prompt.
 - HTTP: `reqwest` with rustls (no OpenSSL).
-- Target platform: Linux (WebKitGTK) is primary and the only one verified by
-  hand. **Windows is now in scope** (F17), macOS later. Keep new code
-  portable; put platform-specific work behind `cfg` and say which platforms
-  you actually tested.
+- Target platform: **Linux first, and deliberately so** (decided 2026-10-21).
+  It is the only platform verified by hand, and where the UI diverges, Linux
+  wins — the tab bar is a GTK widget with no Windows or macOS equivalent
+  (F14). Windows and macOS stay buildable and stay in F17, but are not worth
+  compromising the Linux UI for until someone actually runs them. Keep
+  non-UI code portable, put platform-specific work behind `cfg`, and say
+  which platforms you actually tested.
 - FOSS dependencies only.
 
 ## Layout

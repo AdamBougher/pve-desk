@@ -168,7 +168,7 @@ async function connect(c, trust) {
 $("recheck").addEventListener("click", showLauncher);
 
 async function addConnection(fields, trust) {
-  const result = await invoke("add_connection", { ...fields, trustFingerprint: trust ?? null });
+  const result = await invoke("add_connection", { fields, trustFingerprint: trust ?? null });
   if (result.status === "certificate_unverified") {
     status("");
     if (!(await askTrust(result.fingerprint))) {
