@@ -11,6 +11,9 @@ admin panel and its consoles are verified against a real Proxmox node. See
 `ROADMAP.md` for what is left, and `DECISIONS.md` for why things are built
 the way they are.
 
+Most of the code here was written by an AI model under my direction — see
+[AI assistance](#ai-assistance) before you run it.
+
 Certificates are verified: a node's certificate must either validate against
 the system trust store or match the fingerprint you confirmed when the
 connection was first set up. Nothing in the app accepts a certificate blindly.
@@ -222,6 +225,45 @@ Test coverage is thin but no longer confined to one file: 16 unit tests, 13 in
 optional fields, and checking the payload field names the frontend reads).
 `.vv` formatting in `spice.rs` still has none, despite being a pure function
 that should.
+
+## AI assistance
+
+Most of the code in this repository was written by **Claude Opus 5**, via
+Anthropic's Claude Code, working from my direction. I chose the scope, made
+the architecture calls, reviewed the output, and did every test against my
+own Proxmox node — the model has never had access to it, or to my
+credentials.
+
+This isn't a disclaimer bolted on at the end; the arrangement is visible
+throughout the repo:
+
+- `CLAUDE.md` is the working agreement the model operates under, including
+  the hard rules that exist specifically to keep this app from mishandling
+  my credentials: the password goes to the system keyring and the login
+  request and nowhere else, TLS verification is never disabled, and the
+  frontend cannot ask the backend to call arbitrary API paths.
+- `DECISIONS.md` records what was decided and why, and what was tried and
+  abandoned.
+- `.claude/skills/` holds the project's own workflow and a Tauri 2 reference,
+  so the model works the same way each session.
+- Commits carry a `Co-Authored-By: Claude Opus 5` trailer where the model
+  wrote the change — 8 of 17 at the time of writing; the rest are merges and
+  my own early notes.
+
+The model has introduced real bugs, which is the point of reviewing. Two it
+later found in its own earlier work, both described in the commits that fixed
+them: a `#[serde(rename)]` that renamed a field in *both* directions and so
+silently labelled every VM in the list as a container, and a saved-connection
+bug that could mark the wrong entry as the default. One it did not find
+itself: several rounds went into the wrong theory for laggy console typing,
+and it took me saying the consoles were always fine in Firefox before the
+cause turned out to be rendering rather than input.
+
+What this should mean to you, if you are not me: read the code before you
+point it at a Proxmox server, particularly the parts that touch your
+password and TLS. `ROADMAP.md` keeps an explicit "Known gaps" list of what
+is built but unproven, and I would rather you treat that list as the honest
+boundary of what works than trust the "What works" section above on faith.
 
 ## License
 
