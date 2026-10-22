@@ -6,7 +6,7 @@ use crate::config::{self, Config, HostConfig};
 use crate::error::{Error, Result};
 use crate::{secrets, spice, AppState};
 use tauri::webview::Cookie;
-use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
 
 /// Label of the admin panel window.
 ///
@@ -15,14 +15,40 @@ use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindowBuilder};
 /// single app command (CLAUDE.md hard rule).
 const ADMIN_WINDOW: &str = "admin";
 
-/// The connected session, or an error if nothing is connected.
-fn current_session(state: &State<'_, AppState>) -> Result<Session> {
-    state.current().map(|(_, s)| s).ok_or(Error::NotLoggedIn)
+/// Log in again with the entry's keyring password, replacing the stored
+/// session (F2).
+async fn relogin(state: &State<'_, AppState>, name: &str) -> Result<Session> {
+    let cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    let host = cfg.host(name)?.clone();
+    let password = secrets::get_password(&host.userid(), &host.host)?;
+    let session = api::login(&host, &password, None).await?;
+    state.set_only(name.to_string(), session.clone());
+    Ok(session)
 }
 
-/// The connected session together with the config entry it belongs to.
-fn current_host(state: &State<'_, AppState>) -> Result<(HostConfig, Session)> {
+/// The connected session, re-logged-in first if the ticket is old enough to
+/// be near expiry (F2). Tickets last ~2h; this refreshes past ~90 min.
+async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)> {
     let (name, session) = state.current().ok_or(Error::NotLoggedIn)?;
+    if session.needs_refresh() {
+        let session = relogin(state, &name).await?;
+        return Ok((name, session));
+    }
+    Ok((name, session))
+}
+
+/// The node rejected the ticket and re-login failed too. Drop the session and
+/// tell the UI, so it returns to the launcher instead of retrying every 30
+/// seconds against a connection that is gone (Q2.2).
+fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
+    state.clear();
+    let _ = app.emit("session-lost", why.to_string());
+}
+
+/// The connected session together with the config entry it belongs to,
+/// refreshed if stale.
+async fn current_host(state: &State<'_, AppState>) -> Result<(HostConfig, Session)> {
+    let (name, session) = fresh_session(state).await?;
     let cfg = config::load()?.ok_or(Error::NotConfigured)?;
     Ok((cfg.host(&name)?.clone(), session))
 }
@@ -204,29 +230,65 @@ pub async fn add_connection(
 
 /// F5
 #[tauri::command]
-pub async fn list_guests(state: State<'_, AppState>) -> Result<Vec<Guest>> {
-    current_session(&state)?.list_guests().await
+pub async fn list_guests(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Guest>> {
+    let (name, session) = fresh_session(&state).await?;
+    match session.list_guests().await {
+        // The ticket was refused despite looking fresh — the clock can lie
+        // across a suspend. Re-login once and retry before giving up.
+        Err(Error::Unauthorized) => match relogin(&state, &name).await {
+            Ok(session) => session.list_guests().await,
+            Err(e) => {
+                session_lost(&app, &state, &e);
+                Err(e)
+            }
+        },
+        other => other,
+    }
 }
 
 /// F6
 #[tauri::command]
 pub async fn power_action(
+    app: AppHandle,
     state: State<'_, AppState>,
     node: String,
     kind: String,
     vmid: u32,
     action: String,
 ) -> Result<()> {
-    current_session(&state)?
-        .power(&node, &kind, vmid, &action)
-        .await
+    let (name, session) = fresh_session(&state).await?;
+    match session.power(&node, &kind, vmid, &action).await {
+        Err(Error::Unauthorized) => match relogin(&state, &name).await {
+            Ok(session) => session.power(&node, &kind, vmid, &action).await,
+            Err(e) => {
+                session_lost(&app, &state, &e);
+                Err(e)
+            }
+        },
+        other => other,
+    }
 }
 
 /// F7
 #[tauri::command]
-pub async fn open_spice(state: State<'_, AppState>, node: String, vmid: u32) -> Result<()> {
+pub async fn open_spice(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    node: String,
+    vmid: u32,
+) -> Result<()> {
     let cfg = config::load()?.ok_or(Error::NotConfigured)?;
-    let data = current_session(&state)?.spice_proxy(&node, vmid).await?;
+    let (name, session) = fresh_session(&state).await?;
+    let data = match session.spice_proxy(&node, vmid).await {
+        Err(Error::Unauthorized) => match relogin(&state, &name).await {
+            Ok(session) => session.spice_proxy(&node, vmid).await,
+            Err(e) => {
+                session_lost(&app, &state, &e);
+                Err(e)
+            }
+        },
+        other => other,
+    }?;
     spice::launch(&cfg.remote_viewer_path, &data)
 }
 
@@ -243,7 +305,7 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
         return Ok(());
     }
 
-    let (host, session) = current_host(&state)?;
+    let (host, session) = current_host(&state).await?;
     let ticket = session.ticket;
 
     let url: Url = host
@@ -269,7 +331,13 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
     window.set_cookie(cookie)?;
 
     #[cfg(target_os = "linux")]
-    setup_admin_webview(&window, app.clone(), host.host.clone(), url.to_string())?;
+    setup_admin_webview(
+        &window,
+        app.clone(),
+        host.name.clone(),
+        host.host.clone(),
+        url.to_string(),
+    )?;
     #[cfg(not(target_os = "linux"))]
     window.navigate(url)?;
 
@@ -295,11 +363,11 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
 fn setup_admin_webview(
     window: &tauri::WebviewWindow,
     app: AppHandle,
+    entry: String,
     hostname: String,
     target: String,
 ) -> Result<()> {
     use std::cell::Cell;
-    use tauri::Emitter;
     use webkit2gtk::gio::prelude::TlsCertificateExt;
     use webkit2gtk::glib;
     use webkit2gtk::{WebContextExt, WebViewExt};
@@ -323,7 +391,7 @@ fn setup_admin_webview(
             };
             let seen = seen.to_string();
 
-            match pin_fingerprint(&seen) {
+            match pin_fingerprint(&entry, &seen) {
                 Ok(Pinned::Matches) => {}
                 Ok(Pinned::Stored) => {
                     let _ = app.emit("admin-cert", format!("pinned node certificate {seen}"));
@@ -371,20 +439,19 @@ enum Pinned {
 /// Compare `seen` against the active host's pinned fingerprint, storing it
 /// if nothing is pinned yet.
 #[cfg(target_os = "linux")]
-fn pin_fingerprint(seen: &str) -> Result<Pinned> {
+fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
     let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
-    let pinned = cfg.active()?.cert_fingerprint.clone();
+    let pinned = cfg.host(entry)?.cert_fingerprint.clone();
     match pinned {
         Some(expected) if expected == seen => Ok(Pinned::Matches),
         Some(expected) => Ok(Pinned::Mismatch(expected)),
         None => {
-            let name = cfg.default.clone();
-            let entry = cfg
+            let target = cfg
                 .hosts
                 .iter_mut()
-                .find(|h| h.name == name)
-                .ok_or_else(|| Error::Config(format!("no host entry named {name:?}")))?;
-            entry.cert_fingerprint = Some(seen.to_string());
+                .find(|h| h.name == entry)
+                .ok_or_else(|| Error::Config(format!("no host entry named {entry:?}")))?;
+            target.cert_fingerprint = Some(seen.to_string());
             config::save(&cfg)?;
             Ok(Pinned::Stored)
         }

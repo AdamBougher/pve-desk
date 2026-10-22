@@ -4,7 +4,9 @@ Linux desktop client for Proxmox VE. Saved login + auto-login, embedded
 Proxmox web UI (admin panel), VM/container list, power controls, SPICE launch.
 
 `FEATURES.md` is the source of truth for scope, status and open questions.
-Read it before starting any feature.
+Read it before starting any feature. Finished and cut features move to
+`DONE.md` — check there before re-proposing something, it records decisions
+and several approaches that were tried and failed.
 
 ## Context
 

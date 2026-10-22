@@ -33,7 +33,7 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
   anything is sent. The admin panel webview pins the same fingerprint.
 - **Consoles.** Shell and container/VM consoles work inside the panel.
 - **Guest list.** Read-only summary of VMs and containers, refreshed every
-  30s.
+  30s, with a search box over name, VMID, node and tag. Templates are hidden.
 - **Log out.** Drops the session and returns to the launcher. Saved
   credentials are kept.
 
@@ -146,7 +146,7 @@ This is Linux-only and has no effect on other platforms.
 
 Linux is the only platform verified by hand. Windows is in scope and builds
 in CI (`.github/workflows/ci.yml`) but has never been run; macOS is planned.
-See F17 in `FEATURES.md`.
+See F17 in `FEATURES.md`; completed features are in `DONE.md`.
 
 ## Layout
 
@@ -210,10 +210,12 @@ CI (`.github/workflows/ci.yml`) runs the same checks on `ubuntu-latest` and
 Login, the guest list, the admin panel and SPICE can only be truly verified
 against a real Proxmox node.
 
-Test coverage is currently lopsided: all 13 unit tests live in `config.rs`
-(schema round-trip, defaults, validation, entry lookup). `.vv` formatting in
-`spice.rs` and response parsing in `api.rs` have none yet, despite both being
-pure functions that should.
+Test coverage is thin but no longer confined to one file: 16 unit tests, 13 in
+`config.rs` (schema round-trip, defaults, validation, entry lookup) and 3 in
+`api.rs` (parsing a sample cluster-resources response, tolerating absent
+optional fields, and checking the payload field names the frontend reads).
+`.vv` formatting in `spice.rs` still has none, despite being a pure function
+that should.
 
 ## License
 

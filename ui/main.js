@@ -10,7 +10,29 @@ const status = (msg) => { $("status").textContent = msg || ""; };
 // The backend reports what it did with the node's TLS certificate (F3/F4).
 listen("admin-cert", (e) => status(`Admin panel: ${e.payload}`));
 
+// F2/Q2.2: the node stopped accepting the session and re-login failed too.
+// Go back to the launcher rather than retrying every 30s against a dead one.
+listen("session-lost", async (e) => {
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  clearGuests();
+  await showLauncher();
+  status(`Session ended: ${e.payload}`);
+});
+
 let refreshTimer = null;
+
+// F5: last fetch, templates already dropped. Typing in the search box filters
+// this rather than hitting the API again (Q5.2).
+let guests = [];
+
+// Wipe the table and the cached list together (logout, session loss).
+function clearGuests() {
+  guests = [];
+  $("guests").replaceChildren();
+  $("search").value = "";
+  $("count").textContent = "";
+}
 
 function show(section) {
   $("launcher").hidden = section !== "launcher";
@@ -169,7 +191,7 @@ $("setup-form").addEventListener("submit", async (e) => {
 function startSession() {
   show("main");
   refresh();
-  refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: interval TBD
+  refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
   invoke("open_admin_panel").catch((err) => {
     status(`Admin panel failed to open: ${err}`);
   });
@@ -180,7 +202,7 @@ $("logout").addEventListener("click", async () => {
   refreshTimer = null;
   try {
     await invoke("logout");
-    $("guests").replaceChildren();
+    clearGuests();
     status("Logged out. Your saved login is still stored.");
     showLauncher();
   } catch (err) {
@@ -195,33 +217,71 @@ function fmtMem(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
 
+function kindLabel(kind) {
+  return kind === "qemu" ? "VM" : "LXC";
+}
+
+// Q5.2: match over name, VMID, node and tags. Everything the server sent is
+// lowercased once per row; the query is already lowercase.
+function matches(g, query) {
+  if (!query) return true;
+  const haystack = [
+    g.name ?? "",
+    String(g.vmid),
+    g.node,
+    g.tags ?? "",
+    kindLabel(g.kind),
+  ].join(" ").toLowerCase();
+  return haystack.includes(query);
+}
+
+// Server-supplied text (name, node, status, tags) goes in with textContent,
+// never innerHTML — see the hard rules in CLAUDE.md.
+function cell(tr, text, className) {
+  const td = document.createElement("td");
+  td.textContent = text;
+  if (className) td.className = className;
+  tr.append(td);
+}
+
+function row(g) {
+  const tr = document.createElement("tr");
+  cell(tr, g.vmid);
+  cell(tr, g.name ?? "");
+  cell(tr, kindLabel(g.kind));
+  cell(tr, g.node);
+  // The class is derived from the status, so keep it to the values we style.
+  const known = g.status === "running" || g.status === "stopped";
+  cell(tr, g.status, known ? `st-${g.status}` : undefined);
+  cell(tr, g.cpu != null ? `${(g.cpu * 100).toFixed(0)}%` : "–");
+  cell(tr, `${fmtMem(g.mem)} / ${fmtMem(g.maxmem)}`);
+  return tr;
+}
+
+function render() {
+  const query = $("search").value.trim().toLowerCase();
+  const shown = guests.filter((g) => matches(g, query));
+  $("guests").replaceChildren(...shown.map(row));
+  $("count").textContent = query
+    ? `${shown.length} of ${guests.length}`
+    : `${guests.length}`;
+}
+
 async function refresh() {
   try {
-    const guests = await invoke("list_guests");
+    const all = await invoke("list_guests");
+    // Q5.3: templates are hidden outright, so drop them here rather than in
+    // render() — they shouldn't be reachable through the search box either.
+    guests = all.filter((g) => g.template !== 1);
     guests.sort((a, b) => a.vmid - b.vmid);
-    const rows = guests.map((g) => {
-      const tr = document.createElement("tr");
-      const cpu = g.cpu != null ? `${(g.cpu * 100).toFixed(0)}%` : "–";
-      tr.innerHTML = `
-        <td>${g.vmid}</td>
-        <td></td>
-        <td>${g.kind === "qemu" ? "VM" : "LXC"}</td>
-        <td></td>
-        <td class="st-${g.status}">${g.status}</td>
-        <td>${cpu}</td>
-        <td>${fmtMem(g.mem)} / ${fmtMem(g.maxmem)}</td>`;
-      // Names/nodes come from the server: set as text, not HTML.
-      tr.children[1].textContent = g.name ?? "";
-      tr.children[3].textContent = g.node;
-      return tr;
-    });
-    $("guests").replaceChildren(...rows);
+    render();
     status(`Updated ${new Date().toLocaleTimeString()}`);
   } catch (err) {
     status(`Refresh failed: ${err}`);
   }
 }
 
+$("search").addEventListener("input", render);
 $("refresh").addEventListener("click", refresh);
 $("admin").addEventListener("click", async () => {
   try { await invoke("open_admin_panel"); }

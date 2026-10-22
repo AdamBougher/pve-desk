@@ -54,8 +54,12 @@
   <!-- F5: read-only guest summary. Power controls are the admin panel's job (F6 cut). -->
   <section id="main" hidden>
     <header>
-      <h1>Guests</h1>
-      <div>
+      <h1>Guests <span id="count" class="count"></span></h1>
+      <div class="controls">
+        <!-- Q5.2: filters the fetched list locally, no extra API call. -->
+        <input id="search" type="search" placeholder="Search guests"
+               aria-label="Search guests by name, ID, node or tag"
+               autocomplete="off">
         <button id="refresh">Refresh</button>
         <button id="admin">Admin panel</button>
         <button id="logout">Log out</button>
