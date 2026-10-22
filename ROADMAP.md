@@ -15,6 +15,45 @@ the feature is built, and the answers go to `DECISIONS.md`.
 
 ## v1 (current scope)
 
+### F14. One window with tabs
+`[ ]` Fold the two windows into one: a slim local tab bar with **Admin** (the
+Proxmox UI) and **Guests** (the F5 list), instead of a separate panel window.
+
+Asked for 2026-10-21: "keeping one window that has tabs would be nice", with
+the login window kept around and the running list living in it.
+
+Why it is not trivial — the Proxmox UI would move into an `<iframe>` inside
+our own page, and the cert pinning (F3) currently hangs off WebKitGTK's
+`load-failed-with-tls-errors` signal, which fires for main-frame loads. It is
+unverified whether it fires for a subframe; if it does not, the iframe fails
+with an unacceptable-certificate error and nothing catches it.
+
+Likely answer: stop relying on the failure signal. The fingerprint is already
+stored in the config, so the cert can be pre-authorised before any load —
+build a `gio::TlsCertificate` with `from_pem()` and call
+`allow_tls_certificate_for_host` up front. That needs the cert's PEM, which
+means either storing it alongside the fingerprint or fetching it with a
+handshake at startup. Decide before building.
+
+Known safe: Proxmox sends no `X-Frame-Options` and no CSP, so framing itself
+is allowed (checked 2026-10-21).
+
+Isolation still has to hold: a remote origin inside our own page must not
+reach app commands. Tauri gates IPC by origin, so as long as no capability
+lists the Proxmox URL under `remote.urls`, it cannot — but this becomes an
+argument from origin rules rather than something visible at a glance, which
+is the trade-off noted under Q4.1.
+
+Open questions:
+- Q14.1 Does `load-failed-with-tls-errors` fire for subframe loads? (Test
+  before designing around it.)
+- Q14.2 Store the node's cert PEM in the config next to the fingerprint, or
+  fetch it at startup with a handshake?
+
+---
+
+## Later (not in v1)
+
 ### F7. SPICE console
 `[~]` `POST /nodes/{node}/qemu/{vmid}/spiceproxy` → write a temporary `.vv`
 file → launch `remote-viewer` with it → delete the file after launch.
@@ -55,44 +94,6 @@ viewer binary, which is the whole reason F7 exists.
 Linux, `remote-viewer.exe` on Windows) and is overridable in the config file.
 No decision needed.
 
-### F14. One window with tabs
-`[ ]` Fold the two windows into one: a slim local tab bar with **Admin** (the
-Proxmox UI) and **Guests** (the F5 list), instead of a separate panel window.
-
-Asked for 2026-10-21: "keeping one window that has tabs would be nice", with
-the login window kept around and the running list living in it.
-
-Why it is not trivial — the Proxmox UI would move into an `<iframe>` inside
-our own page, and the cert pinning (F3) currently hangs off WebKitGTK's
-`load-failed-with-tls-errors` signal, which fires for main-frame loads. It is
-unverified whether it fires for a subframe; if it does not, the iframe fails
-with an unacceptable-certificate error and nothing catches it.
-
-Likely answer: stop relying on the failure signal. The fingerprint is already
-stored in the config, so the cert can be pre-authorised before any load —
-build a `gio::TlsCertificate` with `from_pem()` and call
-`allow_tls_certificate_for_host` up front. That needs the cert's PEM, which
-means either storing it alongside the fingerprint or fetching it with a
-handshake at startup. Decide before building.
-
-Known safe: Proxmox sends no `X-Frame-Options` and no CSP, so framing itself
-is allowed (checked 2026-10-21).
-
-Isolation still has to hold: a remote origin inside our own page must not
-reach app commands. Tauri gates IPC by origin, so as long as no capability
-lists the Proxmox URL under `remote.urls`, it cannot — but this becomes an
-argument from origin rules rather than something visible at a glance, which
-is the trade-off noted under Q4.1.
-
-Open questions:
-- Q14.1 Does `load-failed-with-tls-errors` fire for subframe loads? (Test
-  before designing around it.)
-- Q14.2 Store the node's cert PEM in the config next to the fingerprint, or
-  fetch it at startup with a handshake?
-
----
-
-## Later (not in v1)
 
 ### F15. Native UI for Proxmox
 `[ ]` Replace the embedded web panel with a native UI built on the API —
