@@ -101,6 +101,7 @@ pub fn run() {
             commands::open_spice,
             commands::open_admin_panel,
             commands::hide_admin_panel,
+            commands::native_tabs,
             commands::logout,
         ])
         .setup(|app| {
@@ -116,6 +117,11 @@ pub fn run() {
                     }
                 });
             }
+            // F14: on Linux the tab bar is a native widget, because GTK can
+            // neither position a child webview nor cap one's height. See
+            // DECISIONS.md.
+            #[cfg(target_os = "linux")]
+            commands::install_native_tabs(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

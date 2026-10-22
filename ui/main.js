@@ -12,9 +12,20 @@ listen("admin-cert", (e) => status(`Admin panel: ${e.payload}`));
 
 // F2/Q2.2: the node stopped accepting the session and re-login failed too.
 // Go back to the launcher rather than retrying every 30s against a dead one.
+// The native Guests button switches in the backend; this only syncs the page.
+listen("tab", (e) => {
+  if (e.payload === "guests") {
+    $("main").hidden = false;
+    markTab("guests");
+    refresh();
+  }
+});
+
 listen("session-lost", async (e) => {
   clearInterval(refreshTimer);
   refreshTimer = null;
+  // Don't leave a dead panel on screen covering the launcher.
+  await invoke("hide_admin_panel").catch(() => {});
   clearGuests();
   await showLauncher();
   status(`Session ended: ${e.payload}`);
@@ -26,10 +37,14 @@ let refreshTimer = null;
 // this rather than hitting the API again (Q5.2).
 let guests = [];
 
-// F14: which tab is selected. The Admin tab is a webview the backend
-// positions below the tab bar, not a DOM section, so selecting it means
-// showing that webview rather than unhiding an element.
+// F14: which tab is selected. The Admin tab is a webview, not a DOM section,
+// so selecting it means showing that webview rather than unhiding an element.
 let tab = null;
+
+// F14: on Linux the tab bar is drawn as native GTK buttons, because GTK can
+// neither position a child webview nor cap one's height (see DECISIONS.md).
+// The page then hides its own tab buttons, and the backend drives switching.
+let nativeTabs = false;
 
 // Wipe the table and the cached list together (logout, session loss).
 function clearGuests() {
@@ -59,10 +74,12 @@ async function selectTab(name) {
   if (name === tab) return;
   try {
     if (name === "admin") {
-      // The guest list stays loaded but hidden: if the webview fails to
-      // appear, an empty pane is clearer than a list you can't reach.
       await invoke("open_admin_panel");
-      $("main").hidden = true;
+      // With a native strip the local webview is hidden outright while the
+      // panel is up, so leave the list in place: it must already be rendered
+      // when the webview is shown again, without waiting on an event that a
+      // hidden webview may not have processed.
+      if (!nativeTabs) $("main").hidden = true;
       markTab("admin");
     } else {
       await invoke("hide_admin_panel");
@@ -229,7 +246,7 @@ $("setup-form").addEventListener("submit", async (e) => {
 
 function startSession() {
   show("main");
-  $("tabs").hidden = false;
+  $("tabs").hidden = nativeTabs;
   refresh();
   refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
   // Open on Admin: it is the view actually used (Q16.3).
@@ -325,4 +342,10 @@ $("refresh").addEventListener("click", refresh);
 
 
 // ---- F16: always start on the launcher, never auto-connect ----
-showLauncher();
+invoke("native_tabs")
+  .then((v) => {
+    nativeTabs = v;
+    if (nativeTabs) $("tabs").hidden = true;
+  })
+  .catch(() => {})
+  .finally(showLauncher);

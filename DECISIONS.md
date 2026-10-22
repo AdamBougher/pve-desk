@@ -158,8 +158,10 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
   `origin.matches(context) && (webview matches || window matches)` — the
   local-only origin gate would have denied it anyway, but a hard rule should
   not rest on one mechanism.
-- **On Linux a child webview cannot be positioned at all** — found by
-  running it, after a first attempt built on the opposite assumption.
+- **On Linux the tab bar is a native GTK widget**, not part of the page, and
+  exactly one webview is visible at a time. Two measured facts forced this,
+  both found by running it rather than by reading the API:
+  1. A child webview **cannot be positioned**.
   `tauri-runtime-wry` builds a `WindowChild` webview into the window's
   `GtkBox` ("only way to account for menu bar height, and also works for
   multiwebviews :)"), and wry packs it with
@@ -167,16 +169,29 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
   which makes `set_bounds` a no-op. Two webviews therefore split the window
   vertically, which is exactly what the first attempt produced: Proxmox in
   the bottom half, a blank strip above it.
-  The fix is to stop fighting the box, because a vertical box *is* the right
-  container for "fixed strip on top, content fills the rest". Only wry's
-  hardcoded `expand = true` is wrong for the local webview, so `layout_admin`
-  sets its packing directly: `expand = false` with a height request of
-  `TAB_BAR` while the panel is up, restored to expanding when it is down.
+  2. A webview **cannot be capped** to the tab bar's height either. The
+     obvious repair — pack the local webview `expand = false` with
+     `set_size_request(-1, 36)` — does not work, and this was tried and
+     measured: `set_size_request` sets a *minimum*, and GTK3 gives a box
+     child its **natural** size before giving anything to expanding
+     siblings. With `req = -1x36` the local webview reported
+     `preferred_h = (min 36, nat 700)`, took all 700 pixels, and left the
+     admin webview 1. GTK3 has no maximum-size property.
+
+  What does work is a native strip: a `gtk::Box` of two `gtk::Button`s
+  packed non-expanding above both webviews, with the webviews shown one at a
+  time so the visible one fills the rest. A button box has a small, honest
+  natural height, which is exactly what a webview does not. Switching is
+  driven from Rust, not from the page — while the panel is up the local
+  webview is hidden, and depending on a hidden webview's JavaScript to switch
+  back would be a way to get stuck. `native_tabs` tells the page to hide its
+  own tab buttons so there is only ever one tab bar.
+
   This needs `gtk` as a direct dependency, pinned to `0.18` to match
   webkit2gtk's own — already in the tree, so nothing new compiles.
   Windows and macOS build child webviews as real child views where position
-  and size are honoured, so they keep the `set_bounds` path. The two layouts
-  are split by `cfg`.
+  and size are honoured, so they keep the page's own tab bar and the
+  `set_bounds` path. The two layouts are split by `cfg`.
 - **Use `set_bounds`, never `set_position` + `set_size`** on the platforms
   that do position webviews. Those two are read-modify-write: each reads the
   webview's current geometry first, and wry's GTK `bounds()` reads the live X

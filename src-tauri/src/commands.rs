@@ -318,57 +318,92 @@ fn admin_bounds(window: &Window) -> Result<Rect> {
     })
 }
 
-/// Fit the local webview around the admin one.
+/// Fit the two webviews around the tab bar.
 ///
-/// **Linux has no webview geometry.** `tauri-runtime-wry` builds a child
-/// webview into the window's `GtkBox` ("also works for multiwebviews :)"),
-/// and wry packs it with `pack_start(webview, true, true, 0)` and sets
-/// `is_in_fixed_parent = false` — so `set_bounds` is ignored entirely and the
-/// two webviews simply split the window vertically. That is what put the
-/// Proxmox UI in the bottom half with a blank strip above it.
+/// **Linux has no webview geometry, and no way to cap a widget's height.**
+/// `tauri-runtime-wry` builds a child webview into the window's `GtkBox`, and
+/// wry packs it with `pack_start(webview, true, true, 0)` with
+/// `is_in_fixed_parent = false`, so `set_bounds` is ignored. Nor can the
+/// local webview simply be pinned to the tab bar's height: `set_size_request`
+/// sets a *minimum*, and GTK3 hands a box child its **natural** size before
+/// giving anything to expanding siblings. Measured: with `req = -1x36` the
+/// local webview reported `preferred_h = (min 36, nat 700)` and took all 700
+/// pixels, leaving the admin webview 1.
 ///
-/// The box is the right container for "fixed strip on top, content fills the
-/// rest"; only wry's hardcoded `expand = true` is wrong for our local
-/// webview. So the layout is set through the box: while the admin panel is
-/// up, the local webview is pinned to the tab bar's height and stops
-/// expanding; when it is down, the local webview expands to fill the window
-/// again.
+/// So the tab bar is a native GTK widget (see `install_native_tabs`) and
+/// exactly one webview is visible at a time — the visible one fills the space
+/// below the strip, which needs no capping at all.
 #[cfg(target_os = "linux")]
 pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
-    use gtk::prelude::{BoxExt, Cast, WidgetExt};
+    let Some(local) = app.get_webview(MAIN) else {
+        return;
+    };
+    let _ = if admin_visible {
+        local.hide()
+    } else {
+        local.show()
+    };
+}
+
+/// The tab bar, as real GTK buttons above both webviews.
+///
+/// Built once at startup. Switching is driven from here rather than from the
+/// page: while the admin panel is up the local webview is hidden, and relying
+/// on a hidden webview's JavaScript to be able to switch back would be a way
+/// to get stuck.
+#[cfg(target_os = "linux")]
+pub fn install_native_tabs(app: &AppHandle) {
+    use gtk::prelude::{BoxExt, ButtonExt, Cast, WidgetExt};
 
     let Some(local) = app.get_webview(MAIN) else {
         return;
     };
+    let app = app.clone();
     let _ = local.with_webview(move |platform| {
-        let widget = platform.inner();
-        let Some(parent) = widget.parent() else {
+        let Some(parent) = platform.inner().parent() else {
             return;
         };
         let Ok(vbox) = parent.downcast::<gtk::Box>() else {
             return;
         };
-        if admin_visible {
-            widget.set_size_request(-1, TAB_BAR as i32);
-            vbox.set_child_packing(&widget, false, false, 0, gtk::PackType::Start);
-        } else {
-            widget.set_size_request(-1, -1);
-            vbox.set_child_packing(&widget, true, true, 0, gtk::PackType::Start);
-        }
-    });
-}
 
-/// Windows and macOS build child webviews as real child views, where
-/// position and size are honoured.
-#[cfg(not(target_os = "linux"))]
-pub fn layout_admin(app: &AppHandle, _admin_visible: bool) {
-    let (Some(webview), Some(window)) = (app.get_webview(ADMIN_WEBVIEW), app.get_window(MAIN))
-    else {
-        return;
-    };
-    if let Ok(bounds) = admin_bounds(&window) {
-        let _ = webview.set_bounds(bounds);
-    }
+        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        strip.set_margin_start(6);
+        strip.set_margin_end(6);
+        strip.set_margin_top(4);
+        strip.set_margin_bottom(4);
+
+        let admin = gtk::Button::with_label("Admin");
+        let guests = gtk::Button::with_label("Guests");
+        strip.pack_start(&admin, false, false, 0);
+        strip.pack_start(&guests, false, false, 0);
+
+        let app_admin = app.clone();
+        admin.connect_clicked(move |_| {
+            let app = app_admin.clone();
+            // Opening may need a login, so it cannot run on this thread.
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = show_admin(&app).await {
+                    let _ = app.emit("admin-cert", format!("admin panel: {e}"));
+                }
+            });
+        });
+
+        let app_guests = app.clone();
+        guests.connect_clicked(move |_| {
+            if let Some(webview) = app_guests.get_webview(ADMIN_WEBVIEW) {
+                let _ = webview.hide();
+            }
+            layout_admin(&app_guests, false);
+            let _ = app_guests.emit("tab", "guests");
+        });
+
+        // Above both webviews. A non-expanding button box has a small,
+        // truthful natural height, which is exactly what a webview does not.
+        vbox.pack_start(&strip, false, false, 0);
+        vbox.reorder_child(&strip, 0);
+        strip.show_all();
+    });
 }
 
 /// Re-fit on window resize.
@@ -392,7 +427,15 @@ pub fn relayout_admin(app: &AppHandle) {
 /// rather than an iframe, which is what lets the certificate pinning below
 /// keep working unchanged.
 #[tauri::command]
-pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+pub async fn open_admin_panel(app: AppHandle) -> Result<()> {
+    show_admin(&app).await
+}
+
+/// Build the admin webview if needed, then bring it up. Shared by the command
+/// and by the native tab strip's Admin button.
+pub async fn show_admin(app: &AppHandle) -> Result<()> {
+    let state = app.state::<AppState>();
+    let app = app.clone();
     let window = app
         .get_window(MAIN)
         .ok_or(Error::Config("main window is gone".into()))?;
@@ -443,6 +486,16 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
     webview.navigate(url)?;
 
     Ok(())
+}
+
+/// F14: whether the tab bar is drawn natively rather than in the page.
+///
+/// True on Linux, where GTK forces a native strip (see `layout_admin`). The
+/// page hides its own tab buttons when this is true, so there is only ever
+/// one tab bar.
+#[tauri::command]
+pub fn native_tabs() -> bool {
+    cfg!(target_os = "linux")
 }
 
 /// F14: switch back to the local Guests tab.

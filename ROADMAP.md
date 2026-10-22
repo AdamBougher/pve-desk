@@ -41,13 +41,17 @@ Built 2026-10-21 as a **child webview**, not an iframe — see `DECISIONS.md`,
   unknown — the GIR docs say only "when a TLS error occurs during a load
   operation" — and would have to be tested if anyone revisits the iframe.
 
-First run 2026-10-21 showed the two webviews splitting the window in half:
-on Linux a child webview is packed into a `GtkBox` and cannot be positioned,
-so the whole `set_bounds` approach was inert. Layout now goes through the
-box's child packing instead (`DECISIONS.md`).
+Took three attempts, because GTK refuses both of the obvious approaches:
+a child webview can be neither positioned nor capped to a fixed height. The
+measurements are in `DECISIONS.md`. The tab bar is now a native GTK strip on
+Linux, with one webview visible at a time; Windows and macOS keep the page's
+own tab bar.
 
-Unverified: the reworked layout, tab switching, and whether the panel still
+Unverified: the native strip, tab switching, and whether the panel still
 opens signed in. `[~]` until seen running.
+
+Rough edge: the strip is visible on the launcher too, so clicking **Admin**
+before connecting reports an error rather than being disabled.
 
 ---
 
