@@ -7,8 +7,12 @@ but unproven.
 
 Three files, each with one job. Read the first two before starting anything:
 
-- `ROADMAP.md` — **outstanding work only**, with each feature's open
-  questions. A finished feature is deleted from it.
+- `ROADMAP.md` — **outstanding work only**, written as Gherkin: a `Feature:`
+  block per outstanding feature, `Scenario:` blocks as its acceptance
+  criteria, tags for the pass (`@v1` `@v2` `@v3` `@later`) and the state
+  (`@todo` `@wip` `@unverified` `@blocked` `@open`), and `#` comments
+  carrying its open questions. The scenarios are the spec, not an executable
+  suite. A finished feature is deleted from it.
 - `DECISIONS.md` — why the app is built this way, and **what was already
   tried and failed**. Check it before re-proposing something; several ideas
   in there were built, tested and removed.
@@ -153,33 +157,39 @@ If you're unsure whether something counts as architecture, ask.
 
 ## How to work on a feature
 
-1. Read the feature's entry in `ROADMAP.md`.
+1. Read the feature's block in `ROADMAP.md` — the scenarios are what it has
+   to do, the `#` comments are what is still undecided.
 2. Ask its open questions **one at a time**. Wait for each answer before the
    next question. Don't stack questions whose answers depend on each other.
-3. Write the answers back into the entry in `ROADMAP.md`.
+3. For each answer: record it in `DECISIONS.md` with its reasoning, and in
+   `ROADMAP.md` turn the question's comment into the scenario it implies, or
+   delete it if it decided nothing new.
 4. Write the reasoning from "Reason before you code". Ask any architecture
    questions it raises.
-5. Implement it. Keep changes scoped to that feature.
+5. Implement it. Keep changes scoped to that feature — make its scenarios
+   true and don't invent scenarios it didn't have.
 6. Run fmt / clippy / test.
-7. Update the feature's status (`[ ]` → `[~]`).
-8. Say what you could NOT verify (anything that needs a live Proxmox node).
+7. Update the feature's tags (`@todo` → `@wip`, and `@unverified` once the
+   code is there but nobody has run the scenarios).
+8. Say which scenarios you could NOT run (anything needing a live Proxmox
+   node, a GUI click, or hardware you don't have).
 
 ### When it's finished
 
-Don't leave a done feature sitting in `ROADMAP.md` with `[x]` beside it.
-Finishing includes retiring the entry, in the same commit as the code:
+Don't leave a feature whose scenarios all pass sitting in `ROADMAP.md`.
+Finishing includes retiring the block, in the same commit as the code:
 
-- **Delete the entry from `ROADMAP.md`.** Anything still open about it — a
-  question you deferred, something unverified — moves to that file's "Open
-  questions from shipped features" or "Known gaps" instead.
+- **Delete the `Feature:` block from `ROADMAP.md`.** Anything still open about
+  it — a question you deferred, a scenario nobody ran — moves to that file's
+  "Shipped but unproven" feature as an `@unverified` scenario instead.
 - **Move its decisions to `DECISIONS.md`**: the answers to its questions with
   the reasoning, and anything you tried that didn't work, with the
   measurement that killed it. Not a build log — `git log` has that.
 - **Update `README.md`** if the feature changed what the app does.
 
-"Finished" means verified, not compiled. If it can only be exercised against
-a live node you don't have, it stays `[~]` in `ROADMAP.md` and I'll tell you
-when I've confirmed it.
+"Finished" means its scenarios were run, not that it compiled. If they can
+only be run against a live node you don't have, the feature stays
+`@unverified` in `ROADMAP.md` and I'll tell you when I've confirmed it.
 
 ## Testing reality
 
