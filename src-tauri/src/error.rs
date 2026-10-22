@@ -16,6 +16,8 @@ pub enum Error {
     Http(#[from] reqwest::Error),
     #[error("Proxmox API error: {0}")]
     Api(String),
+    #[error("certificate not trusted (SHA-256 {0})")]
+    CertUnverified(String),
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("window error: {0}")]

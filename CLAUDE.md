@@ -60,10 +60,12 @@ and `cargo test` must pass with no warnings.
 
 - Never write the password to disk, logs, the config file, or error messages.
   It only goes to the keyring and the login request.
-- TLS verification must stay enabled. `api.rs` still carries one
-  `danger_accept_invalid_certs(true)` left over from the original skeleton.
-  That is a known defect, marked `TODO(F3)`, and certificate pinning (F3)
-  removes it. Don't add another one and don't widen its scope.
+- TLS verification must stay enabled. There is no
+  `danger_accept_invalid_certs` anywhere in the codebase any more and none
+  may be added. Certificates are checked by the custom verifier in `api.rs`:
+  valid against the OS trust store, or matching the pinned fingerprint.
+  An unknown certificate must stop the connection and be shown to the user,
+  never accepted silently.
 - Power actions go through the allow-list in `Session::power`. Don't let the
   frontend pass arbitrary API paths.
 - Text that comes from the server (VM names, node names, tags, errors) is set

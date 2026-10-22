@@ -57,7 +57,7 @@ Open questions:
   setup screen.
 
 ### F3. Certificate pinning
-`[~]` Proxmox uses a self-signed cert by default. On first connect, show the
+`[x]` Proxmox uses a self-signed cert by default. On first connect, show the
 cert's SHA-256 fingerprint, ask you to confirm it, and store it. On later
 connects, reject any cert that doesn't match.
 
@@ -68,15 +68,27 @@ connect stores what it sees and reports it to the UI; a later mismatch is
 refused and the error page stands. Verified: the stored fingerprint matches
 the node's real leaf cert byte for byte.
 
-Still to do: the **reqwest client** is untouched and still uses
-`danger_accept_invalid_certs(true)`. Also, first connect currently trusts on
-first use rather than asking for confirmation — a deliberate shortcut, see
-Q3.3.
+Done for the **API client** (2026-10-21). `danger_accept_invalid_certs` is
+gone from the codebase entirely. A custom `rustls::ServerCertVerifier` accepts
+a certificate when it verifies against the OS trust store **or** matches the
+pinned SHA-256, so a real certificate works and survives renewal while a
+self-signed one is pinned. Decided under Q3.3: an unverified, unpinned
+certificate stops the connection and the UI shows the fingerprint for
+confirmation — the TLS handshake is refused before the request body is sent,
+so the password never reaches an unverified server.
+
+Verified against the live node: with the fingerprint pinned, connect succeeds
+and the guest list loads; with the pin removed, the connection is refused and
+the UI shows `F8:53:5C:…:51:40`, matching the node's real certificate.
+
+New direct dependencies: `rustls`, `rustls-native-certs`, `sha2` — all were
+already in the tree via reqwest, so nothing new is compiled.
 
 Open questions:
-- Q3.3 Should first connect **ask** before pinning (show the fingerprint in a
-  dialog and wait), or keep trust-on-first-use with the fingerprint reported
-  afterwards as it works now?
+- Q3.3 **Answered: ask.** An unverified certificate blocks the connection
+  until the user confirms the fingerprint. The admin panel's webview still
+  trusts on first use, but by then the API client has already pinned the
+  fingerprint, so in practice it validates against it.
 
 - Q3.1 **Answered by inspection:** self-signed, issued by the cluster's own
   `PVE Cluster Manager CA`, `CN=home.opah-tuna.ts.net`, valid to 2027-09-08.

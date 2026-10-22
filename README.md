@@ -10,10 +10,9 @@ Status: **working for daily use, with caveats.** Connecting, the embedded
 admin panel and its consoles are verified against a real Proxmox node. See
 `FEATURES.md` for the full feature list, decisions and open questions.
 
-> ⚠️ **The API client still accepts any TLS certificate.**
-> The embedded admin panel pins the node's certificate (F3), but the Rust
-> HTTP client — the one that carries your password and session ticket — does
-> not yet. Use it on a network you trust until that half of F3 is done.
+Certificates are verified: a node's certificate must either validate against
+the system trust store or match the fingerprint you confirmed when the
+connection was first set up. Nothing in the app accepts a certificate blindly.
 
 ## What works
 
@@ -26,9 +25,12 @@ admin panel and its consoles are verified against a real Proxmox node. See
   one is live at a time.
 - **Embedded admin panel.** The full Proxmox web UI in its own window,
   already signed in — no login form. Opens automatically on connect.
-- **Certificate pinning (webview).** On first connect the node's certificate
-  is pinned to its SHA-256 and allowed for that host only. A certificate
-  that later changes is refused.
+- **Certificate verification.** The API client checks the node against the
+  OS trust store first and falls back to the fingerprint you confirmed, so a
+  real certificate (Tailscale, Let's Encrypt, or a CA you imported) works
+  and survives renewal, while Proxmox's self-signed default is pinned. An
+  unknown certificate stops the connection and shows you its SHA-256 before
+  anything is sent. The admin panel webview pins the same fingerprint.
 - **Consoles.** Shell and container/VM consoles work inside the panel.
 - **Guest list.** Read-only summary of VMs and containers, refreshed every
   30s.
