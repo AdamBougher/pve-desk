@@ -26,15 +26,37 @@ everyone else — one file, no distro assumptions, and Tauri bundles it
 already. Arch because that is what this is developed and run on, which makes
 it the one package that gets used daily rather than only tested.
 
-To do:
-- Set `bundle.targets` to AppImage only. `deb` and `nsis` are currently
-  listed and neither is being released: Windows has no tabs (Linux first),
-  and nobody is asking for a `.deb`.
-- Write a `PKGBUILD`. Not a Tauri bundle target, so it is hand-written.
-- Ship a `.desktop` entry and check the icon renders in a launcher — note
-  the icon's dark-background bug in Known gaps, which this feature is the
-  first to actually expose.
-- Decide where releases live (GitHub releases, AUR, or both).
+**Releases live on GitHub** (answered 2026-10-21). Not the AUR for now: that
+is a separate submission with its own review, and the `PKGBUILD` in the repo
+can be built by hand meanwhile. Worth revisiting once the AppImage has
+actually been downloaded by someone.
+
+Written 2026-10-21, none of it verified:
+- `bundle.targets` is AppImage only, with publisher/homepage/license and a
+  description for the generated launcher entry.
+- `packaging/arch/PKGBUILD` — builds from the release tarball with
+  `cargo build --release`, runs the tests, installs the binary, the
+  `.desktop` entry, three icon sizes and the licence.
+- `packaging/pve-desk.desktop`.
+- `.github/workflows/release.yml` — on a `v*` tag, builds the AppImage on
+  **ubuntu-22.04** and uploads it plus a `.sha256` to a **draft** release.
+
+Left to do:
+- **Build the AppImage once and run it.** Nothing here has been executed:
+  `tauri-cli` is not installed on this machine.
+- **Confirm `libwebkit2gtk-4.1-dev` exists on jammy.** 22.04 was chosen over
+  `ubuntu-latest` on purpose — an AppImage is only as portable as the glibc
+  it was linked against — but if that package is missing there, the fallback
+  is `ubuntu-24.04` and a less portable AppImage.
+- **Check `StartupWMClass`.** The `.desktop` entry guesses
+  `dev.pvedesk.app`; if the taskbar shows a generic icon instead of grouping
+  under this entry, that string is wrong. `xprop WM_CLASS` on the running
+  window gives the real value.
+- **Fix the icon first** — see Known gaps. Packaging is what finally puts
+  that icon in a launcher and a dock, where half of it being invisible on a
+  dark theme will actually show.
+- Pushing `release.yml` needs a token with the `workflow` scope; the HTTPS
+  remote's token did not have it last time, and SSH was used instead.
 
 
 ## Later (not in v1)

@@ -231,6 +231,16 @@ wanting to ship there) and not Flatpak (sandboxing would complicate Secret
 Service access and launching `remote-viewer` for F7). `nsis` stops being
 built with them: Windows has no tab bar, so it is not what gets released.
 
+### Releases on GitHub (2026-10-21)
+Tagged releases on GitHub, built by a workflow on a `v*` tag, published as a
+**draft** so the notes are written before anyone sees it. Not the AUR yet —
+a separate submission with its own review, and the in-repo `PKGBUILD` can be
+built by hand meanwhile.
+
+The AppImage is built on **ubuntu-22.04**, not `ubuntu-latest`: an AppImage
+is only as portable as the glibc it was linked against, and building on
+24.04 would make it unrunnable on anything older.
+
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
 be private and short-lived.

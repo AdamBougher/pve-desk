@@ -1,0 +1,66 @@
+name: release
+
+# Tag-driven: push v1.0.0 and this builds the AppImage and attaches it to a
+# GitHub release (F12). The release is created as a DRAFT, so the notes can
+# be written before anyone sees it.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  appimage:
+    # Deliberately not ubuntu-latest. An AppImage is only as portable as the
+    # glibc it was linked against, so it is built on the oldest runner that
+    # still carries webkit2gtk 4.1.
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
+            build-essential pkg-config file
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target
+          key: release-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: release-cargo-
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build AppImage
+        # linuxdeploy ships as an AppImage itself and needs FUSE, which CI
+        # runners do not have. Extracting instead of mounting is the
+        # supported way around that.
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: cargo tauri build --bundles appimage
+
+      - name: Publish draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eux
+          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage)
+          sha256sum "$appimage" > "$appimage.sha256"
+          # Reuse the release if the tag was pushed once already.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" \
+                 --draft \
+                 --title "$GITHUB_REF_NAME" \
+                 --notes "AppImage build of $GITHUB_REF_NAME. Arch users: see packaging/arch/PKGBUILD."
+          gh release upload "$GITHUB_REF_NAME" "$appimage" "$appimage.sha256" --clobber

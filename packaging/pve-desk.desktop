@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=pve-desk
+GenericName=Proxmox VE Client
+Comment=Desktop client for Proxmox VE
+Exec=pve-desk
+Icon=pve-desk
+Terminal=false
+Categories=Utility;System;Network;
+Keywords=proxmox;pve;virtualization;vm;
+# Lets the taskbar match the window to this entry. tao sets the GTK
+# application id from the bundle identifier.
+StartupWMClass=dev.pvedesk.app

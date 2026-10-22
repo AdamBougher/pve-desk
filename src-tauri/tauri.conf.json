@@ -22,7 +22,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "nsis"],
+    "targets": ["appimage"],
+    "category": "Utility",
+    "publisher": "Adam Bougher",
+    "homepage": "https://github.com/AdamBougher/pve-desk",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "shortDescription": "Desktop client for Proxmox VE",
+    "longDescription": "Saved logins kept in the system keyring, the full Proxmox web UI embedded and already signed in, and a read-only list of VMs and containers.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

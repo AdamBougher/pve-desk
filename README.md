@@ -72,12 +72,20 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
 
 ## Installing
 
-Nothing is published yet. When it is, there will be two routes:
+No release is published yet — the machinery is written but has never been
+run. When it is, there will be two routes:
 
-- **AppImage** — one file, no distro assumptions, run it and go.
-- **Arch package** — a `PKGBUILD`, since Arch is what this runs on daily.
+- **AppImage**, attached to the [GitHub release](https://github.com/AdamBougher/pve-desk/releases).
+  One file, no distro assumptions: `chmod +x` and run it.
+- **Arch package**, from `packaging/arch/PKGBUILD`:
 
-Until then, build it yourself.
+  ```sh
+  cd packaging/arch && makepkg -si
+  ```
+
+Either way you still need a Secret Service keyring running (see Building).
+
+Until a tag is pushed, build it yourself.
 
 ## Building
 
