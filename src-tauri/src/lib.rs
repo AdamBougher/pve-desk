@@ -96,6 +96,7 @@ pub fn run() {
             commands::probe_connection,
             commands::add_connection,
             commands::connect,
+            commands::remove_connection,
             commands::list_guests,
             commands::power_action,
             commands::open_spice,

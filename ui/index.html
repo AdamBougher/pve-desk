@@ -39,6 +39,20 @@
       </div>
     </div>
 
+    <!-- F19: destructive and irreversible, so it asks first -->
+    <div id="remove-confirm" hidden>
+      <h2>Remove this connection?</h2>
+      <p>
+        This deletes the saved entry for <strong id="remove-target"></strong>
+        and its password from the system keyring. Nothing on the Proxmox node
+        is changed. To use it again you would add it back, password included.
+      </p>
+      <div class="confirm-actions">
+        <button id="remove-ok">Remove</button>
+        <button id="remove-cancel">Cancel</button>
+      </div>
+    </div>
+
     <details id="add-connection">
       <summary>Add a connection</summary>
       <form id="setup-form">

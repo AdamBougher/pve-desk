@@ -20,6 +20,10 @@ pub enum Error {
     CertUnverified(String),
     #[error("session rejected by the node")]
     Unauthorized,
+    /// F19: refuses a destructive action on the entry that holds the live
+    /// session. Shown to the user as-is, so it reads as an instruction.
+    #[error("this connection is signed in — log out before removing it")]
+    Connected,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("window error: {0}")]

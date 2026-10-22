@@ -40,7 +40,8 @@ Windows and wanted the same experience on Linux, so I built one.
   The reachability check sends no credentials.
 - **Saved logins.** Your password goes to the system keyring. Host, port,
   username and realm go to a plain config file. Several connections can be
-  saved; one is signed in at a time.
+  saved; one is signed in at a time. Removing one deletes its keyring password
+  with it, after asking.
 - **One window, two tabs.** An **Admin** / **Guests** strip switches between
   the Proxmox web UI and the guest list. Admin is greyed out until you
   connect.
@@ -73,8 +74,11 @@ Honest limits, so you can judge it before installing:
   and hardened (mode 0600, one file per launch, deleted seconds after the
   viewer starts), but `remote-viewer` isn't installed on my machine, so it has
   never actually run. Use the in-panel consoles instead.
-- **You can't delete a saved connection** from the launcher yet. It means
-  destroying a keyring entry, and I haven't decided how that should behave.
+- **Removing a saved connection is new and unproven.** Each launcher row has a
+  Remove button that deletes the entry and its keyring password after a
+  confirmation, and refuses the connection you are signed in to — but it has
+  not been exercised against a real keyring yet. Log out first; there is no
+  "forget this login" shortcut while connected, by decision.
 - **No native power buttons.** Start/stop/shutdown live in the embedded admin
   panel, which does it better than I would. The backend code is still there.
 - **Linux only, in practice.** Windows and macOS compile — Windows is built in

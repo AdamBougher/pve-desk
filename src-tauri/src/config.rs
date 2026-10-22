@@ -94,6 +94,29 @@ impl Config {
             None => self.hosts.push(host),
         }
     }
+
+    /// Delete one entry, returning it so the caller can reach its keyring
+    /// password (F19).
+    ///
+    /// `default` is repointed at a remaining entry, or cleared when none is
+    /// left, so it never names something that is gone. An empty `default`
+    /// simply means no row is preselected (Q16.4).
+    pub fn remove_host(&mut self, name: &str) -> Result<HostConfig> {
+        let at = self
+            .hosts
+            .iter()
+            .position(|h| h.name == name)
+            .ok_or_else(|| Error::Config(format!("no host entry named {name:?}")))?;
+        let removed = self.hosts.remove(at);
+        if self.default == removed.name {
+            self.default = self
+                .hosts
+                .first()
+                .map(|h| h.name.clone())
+                .unwrap_or_default();
+        }
+        Ok(removed)
+    }
 }
 
 impl HostConfig {
@@ -302,6 +325,76 @@ mod tests {
         cfg.upsert_host(work);
         assert_eq!(cfg.hosts.len(), 2);
         assert_eq!(cfg.host(&cfg.default).unwrap().host, "10.0.0.5");
+    }
+
+    /// F19: removal hands back the entry, because the caller needs its
+    /// `userid`/`host` to delete the matching keyring password.
+    #[test]
+    fn remove_returns_the_entry_and_drops_it() {
+        let mut cfg = Config::single(host());
+        let removed = cfg.remove_host("main").unwrap();
+        assert_eq!(removed.host, "192.168.1.10");
+        assert!(cfg.hosts.is_empty());
+    }
+
+    #[test]
+    fn remove_errors_on_an_unknown_entry() {
+        let mut cfg = Config::single(host());
+        assert!(cfg.remove_host("nope").is_err());
+        assert_eq!(cfg.hosts.len(), 1, "a failed remove changes nothing");
+    }
+
+    /// `default` must never name an entry that is gone: `host(&cfg.default)`
+    /// would then error on every launcher load.
+    #[test]
+    fn remove_repoints_default_at_a_survivor() {
+        let mut work = host();
+        work.name = "work".into();
+        work.host = "10.0.0.5".into();
+        let mut cfg = Config {
+            default: "work".into(),
+            remote_viewer_path: default_viewer(),
+            hosts: vec![host(), work],
+        };
+        cfg.remove_host("work").unwrap();
+        assert_eq!(cfg.default, "main");
+        assert!(cfg.host(&cfg.default).is_ok());
+    }
+
+    #[test]
+    fn remove_leaves_default_empty_when_nothing_is_left() {
+        let mut cfg = Config::single(host());
+        cfg.remove_host("main").unwrap();
+        assert_eq!(cfg.default, "");
+    }
+
+    /// Removing one of two entries must not disturb the other, nor the
+    /// app-level settings that sit outside the array.
+    #[test]
+    fn remove_keeps_the_other_entry_and_app_settings() {
+        let mut work = host();
+        work.name = "work".into();
+        work.host = "10.0.0.5".into();
+        let mut cfg = Config {
+            default: "main".into(),
+            remote_viewer_path: "/opt/bin/remote-viewer".into(),
+            hosts: vec![host(), work],
+        };
+        cfg.remove_host("main").unwrap();
+        assert_eq!(cfg.default, "work");
+        assert_eq!(cfg.hosts.len(), 1);
+        assert_eq!(cfg.host("work").unwrap().host, "10.0.0.5");
+        assert_eq!(cfg.remote_viewer_path, "/opt/bin/remote-viewer");
+    }
+
+    /// An emptied config still has to render and parse: `default = ""` is a
+    /// valid state the launcher reaches by removing the last connection.
+    #[test]
+    fn empty_config_round_trips() {
+        let mut cfg = Config::single(host());
+        cfg.remove_host("main").unwrap();
+        let text = render(&cfg).unwrap();
+        assert_eq!(parse(&text).unwrap(), cfg);
     }
 
     #[test]

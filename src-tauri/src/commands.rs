@@ -260,6 +260,32 @@ pub async fn add_connection(
     Ok(ConnectOutcome::Connected)
 }
 
+/// F19: remove a saved connection — its config entry and its keyring
+/// password, which is all this app ever stored for it. Nothing on the node is
+/// touched.
+///
+/// Refused for the entry that holds the live session: the session is keyed by
+/// that entry's id, so deleting it underneath would leave a session whose
+/// refresh and admin panel can no longer resolve a host. Log out first. The
+/// launcher greys the button out too; this is the half that cannot be
+/// bypassed from the page.
+///
+/// **Password first, config second.** A keyring that refuses (locked, no
+/// Secret Service) then leaves everything in place to retry, rather than
+/// deleting the config entry that is the only way back to the secret.
+#[tauri::command]
+pub fn remove_connection(state: State<'_, AppState>, name: String) -> Result<()> {
+    if state.is_connected(&name) {
+        return Err(Error::Connected);
+    }
+    let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    let host = cfg.host(&name)?.clone();
+    secrets::delete_password(&host.userid(), &host.host)?;
+    cfg.remove_host(&name)?;
+    config::save(&cfg)?;
+    Ok(())
+}
+
 /// F5
 #[tauri::command]
 pub async fn list_guests(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Guest>> {
