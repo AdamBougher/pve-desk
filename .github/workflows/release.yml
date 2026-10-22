@@ -3,6 +3,11 @@ name: release
 # Tag-driven: push v1.0.0 and this builds the AppImage and attaches it to a
 # GitHub release (F12). The release is created as a DRAFT, so the notes can
 # be written before anyone sees it.
+#
+# A manual run builds and checks the bundle but publishes NOTHING: the publish
+# step is guarded on a tag ref. It used to run `gh release create` with
+# GITHUB_REF_NAME, which on a branch dispatch means the branch name — that is
+# how a git tag named `main` ended up beside the branch of the same name.
 on:
   push:
     tags: ['v*']
@@ -10,6 +15,17 @@ on:
 
 permissions:
   contents: write
+
+# A tag push and a manual dispatch otherwise race on the same release assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Must match the tauri version pinned in src-tauri/Cargo.lock. Upstream
+  # ships a prebuilt CLI for this exact tag; building it from source cost
+  # ~6.5 minutes of every release run.
+  TAURI_CLI_VERSION: 2.12.4
 
 jobs:
   appimage:
@@ -19,7 +35,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Linux system dependencies
         run: |
@@ -28,19 +44,33 @@ jobs:
             libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
             build-essential pkg-config file
 
+      # The key carries the commit, so every run saves a fresh cache: with a
+      # fixed key, actions/cache writes only on a miss, which freezes the
+      # first cache forever while restore-keys hide that it has gone stale.
+      # ~/.rustup is cached too — rust-toolchain.toml pins 1.97.1, which the
+      # runner does not ship and would otherwise download on first use.
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
+            ~/.rustup
             src-tauri/target
-          key: release-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-          restore-keys: release-cargo-
+          key: release-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            release-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            release-cargo-
 
+      # Prebuilt, from tauri's own release — not a third-party action, and
+      # pinned to the version above rather than whatever "^2" resolves to.
       - name: Install tauri-cli
-        run: cargo install tauri-cli --version "^2" --locked
+        run: |
+          set -euo pipefail
+          url="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-x86_64-unknown-linux-gnu.tgz"
+          curl -fsSL "$url" | tar -xz -C "$HOME/.cargo/bin" cargo-tauri
+          cargo tauri --version
 
       - name: Build AppImage
         # linuxdeploy ships as an AppImage itself and needs FUSE, which CI
@@ -48,19 +78,46 @@ jobs:
         # supported way around that.
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: cargo tauri build --bundles appimage
+        run: cargo tauri build --bundles appimage -- --locked
 
       - name: Publish draft release
+        # Tags only. A branch dispatch has proved the build by this point,
+        # which is all it is for.
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eux
-          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage)
-          sha256sum "$appimage" > "$appimage.sha256"
+          set -euxo pipefail
+          shopt -s nullglob
+          bundles=(src-tauri/target/release/bundle/appimage/*.AppImage)
+          if [ ${#bundles[@]} -ne 1 ]; then
+            echo "expected exactly one AppImage, found ${#bundles[@]}: ${bundles[*]-none}" >&2
+            exit 1
+          fi
+          appimage="${bundles[0]}"
+          dir=$(dirname "$appimage")
+          file=$(basename "$appimage")
+
+          # The checksum must name the file as the user will have it on disk.
+          # `sha256sum "$appimage"` records the build path, so `sha256sum -c`
+          # then fails for everyone who downloads it.
+          ( cd "$dir" && sha256sum "$file" > "$file.sha256" )
+
           # Reuse the release if the tag was pushed once already.
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
             || gh release create "$GITHUB_REF_NAME" \
                  --draft \
                  --title "$GITHUB_REF_NAME" \
                  --notes "AppImage build of $GITHUB_REF_NAME. Arch users: see packaging/arch/PKGBUILD."
-          gh release upload "$GITHUB_REF_NAME" "$appimage" "$appimage.sha256" --clobber
+
+          # --clobber only replaces an asset of the same name, so a version
+          # bump would leave the previous AppImage sitting beside the new
+          # checksum — which reads as a failed integrity check. Drop the old
+          # bundle assets first, and only those.
+          stale=$(gh release view "$GITHUB_REF_NAME" --json assets \
+                    -q '.assets[].name | select(test("\\.AppImage(\\.sha256)?$"))' || true)
+          for asset in $stale; do
+            gh release delete-asset "$GITHUB_REF_NAME" "$asset" --yes
+          done
+
+          gh release upload "$GITHUB_REF_NAME" "$appimage" "$dir/$file.sha256" --clobber
