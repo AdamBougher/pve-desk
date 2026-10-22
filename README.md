@@ -27,8 +27,10 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
 - **Saved logins.** Password lives in the system keyring; host, port,
   username and realm in a config file. Several connections can be saved;
   one is live at a time.
-- **Embedded admin panel.** The full Proxmox web UI in its own window,
-  already signed in — no login form. Opens automatically on connect.
+- **Embedded admin panel.** The full Proxmox web UI, already signed in — no
+  login form. Opens automatically on connect. On Linux it shares the main
+  window with the guest list behind an **Admin** / **Guests** tab strip;
+  elsewhere it opens as a separate window.
 - **Certificate verification.** The API client checks the node against the
   OS trust store first and falls back to the fingerprint you confirmed, so a
   real certificate (Tailscale, Let's Encrypt, or a CA you imported) works

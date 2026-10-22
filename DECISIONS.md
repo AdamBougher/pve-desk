@@ -189,9 +189,14 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
 
   This needs `gtk` as a direct dependency, pinned to `0.18` to match
   webkit2gtk's own — already in the tree, so nothing new compiles.
-  Windows and macOS build child webviews as real child views where position
-  and size are honoured, so they keep the page's own tab bar and the
-  `set_bounds` path. The two layouts are split by `cfg`.
+- **Tabs are Linux-only; elsewhere the panel is its own window**, as it was
+  before F14. The native strip is a GTK widget with no Windows or macOS
+  equivalent, and a child webview with no way to switch back from it would
+  be worse than a separate window. The speculative positioning path for
+  those platforms was deleted rather than kept untested: it was written
+  against an API whose behaviour on Linux turned out to be nothing like the
+  documentation implied, and no one has run this on Windows to find out
+  whether it is any better there.
 - **Use `set_bounds`, never `set_position` + `set_size`** on the platforms
   that do position webviews. Those two are read-modify-write: each reads the
   webview's current geometry first, and wry's GTK `bounds()` reads the live X

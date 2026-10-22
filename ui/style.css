@@ -4,26 +4,16 @@
   font-family: system-ui, sans-serif;
   font-size: 14px;
 }
-/* F14: must equal TAB_BAR in src-tauri/src/commands.rs. */
-:root { --tab-bar-height: 36px; }
-
-/* No body padding: the tab bar is flush at the top so the admin webview,
-   positioned at --tab-bar-height in window coordinates, lands exactly under
-   it. Padding lives on #content instead. */
 body { margin: 0; padding: 0; }
 
-#tabbar {
-  height: var(--tab-bar-height);
-  box-sizing: border-box;
+/* Status line, flush under the native tab strip. */
+#statusbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 2px 10px;
   border-bottom: 1px solid #8884;
 }
-#tabs { display: flex; gap: 4px; }
-.tab { padding: 3px 12px; }
-.tab[aria-pressed="true"] { font-weight: 600; }
 #content { padding: 16px; }
 h1 { font-size: 1.3rem; margin: 0 0 12px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
@@ -37,7 +27,7 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8884; }
 td.actions { display: flex; gap: 4px; }
 .st-running { color: #2a9d4b; }
 .st-stopped { color: #888; }
-#status { opacity: 0.7; margin: 0 0 0 auto; font-size: 0.9em; }
+#status { opacity: 0.7; margin: 0; font-size: 0.9em; }
 
 /* F16: launcher */
 #connections { list-style: none; padding: 0; }

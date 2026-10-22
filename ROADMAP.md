@@ -47,11 +47,16 @@ measurements are in `DECISIONS.md`. The tab bar is now a native GTK strip on
 Linux, with one webview visible at a time; Windows and macOS keep the page's
 own tab bar.
 
-Unverified: the native strip, tab switching, and whether the panel still
-opens signed in. `[~]` until seen running.
+Confirmed working by the user 2026-10-21: the native strip switches between
+the admin panel and the guest list, and the panel still opens signed in.
 
-Rough edge: the strip is visible on the launcher too, so clicking **Admin**
-before connecting reports an error rather than being disabled.
+Rough edges left:
+- The strip is visible on the launcher too, so clicking **Admin** before
+  connecting reports an error rather than being disabled.
+- The buttons are unstyled GTK, which does not match the rest of the app.
+- **Windows and macOS have no tabs** — the panel stays a separate window
+  there (see `DECISIONS.md`). Folding it in needs a per-platform equivalent
+  of the native strip, which is part of F17.
 
 ---
 

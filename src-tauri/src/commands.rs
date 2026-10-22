@@ -24,11 +24,6 @@ const ADMIN_WEBVIEW: &str = "admin";
 /// Label of the window and local webview the frontend runs in.
 const MAIN: &str = "main";
 
-/// Height of the local tab bar, in logical pixels. The admin webview is
-/// positioned below it, so this must match `--tab-bar-height` in
-/// `ui/style.css` or the bar is either covered or leaves a gap.
-const TAB_BAR: f64 = 36.0;
-
 /// Log in again with the entry's keyring password, replacing the stored
 /// session (F2).
 async fn relogin(state: &State<'_, AppState>, name: &str) -> Result<Session> {
@@ -306,18 +301,6 @@ pub async fn open_spice(
     spice::launch(&cfg.remote_viewer_path, &node, vmid, &data).await
 }
 
-/// Where the admin webview sits on platforms that can position a webview:
-/// the full client area below the tab bar.
-#[cfg(not(target_os = "linux"))]
-fn admin_bounds(window: &Window) -> Result<Rect> {
-    let scale = window.scale_factor()?;
-    let size = window.inner_size()?.to_logical::<f64>(scale);
-    Ok(Rect {
-        position: LogicalPosition::new(0.0, TAB_BAR).into(),
-        size: LogicalSize::new(size.width, (size.height - TAB_BAR).max(0.0)).into(),
-    })
-}
-
 /// Fit the two webviews around the tab bar.
 ///
 /// **Linux has no webview geometry, and no way to cap a widget's height.**
@@ -406,19 +389,6 @@ pub fn install_native_tabs(app: &AppHandle) {
     });
 }
 
-/// Re-fit on window resize.
-///
-/// Only meaningful where the webview is positioned by hand; on Linux the
-/// GtkBox re-lays out its children itself, so there is nothing to do.
-pub fn relayout_admin(app: &AppHandle) {
-    #[cfg(not(target_os = "linux"))]
-    if app.get_webview(ADMIN_WEBVIEW).is_some() {
-        layout_admin(app, true);
-    }
-    #[cfg(target_os = "linux")]
-    let _ = app;
-}
-
 /// F4/F14: show the Proxmox web UI, already logged in, as a webview inside
 /// the main window below the tab bar.
 ///
@@ -436,14 +406,16 @@ pub async fn open_admin_panel(app: AppHandle) -> Result<()> {
 pub async fn show_admin(app: &AppHandle) -> Result<()> {
     let state = app.state::<AppState>();
     let app = app.clone();
-    let window = app
-        .get_window(MAIN)
-        .ok_or(Error::Config("main window is gone".into()))?;
 
-    // Already built: just bring it back and re-fit it.
+    // Already built: bring it back.
     if let Some(existing) = app.get_webview(ADMIN_WEBVIEW) {
         existing.show()?;
+        #[cfg(target_os = "linux")]
         layout_admin(&app, true);
+        #[cfg(not(target_os = "linux"))]
+        if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
+            window.set_focus()?;
+        }
         return Ok(());
     }
 
@@ -456,14 +428,33 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
         .map_err(|e| Error::Config(format!("bad base url: {e}")))?;
     let blank: Url = "about:blank".parse().expect("valid url");
 
-    // The position and size are only honoured off Linux; there the GtkBox
-    // ignores them and `layout_admin` below sets the split instead.
-    let webview = window.add_child(
-        WebviewBuilder::new(ADMIN_WEBVIEW, WebviewUrl::External(blank)),
-        LogicalPosition::new(0.0, TAB_BAR),
-        LogicalSize::new(800.0, 600.0),
-    )?;
-    layout_admin(&app, true);
+    // Linux: a second webview in the main window, under the native tab strip.
+    #[cfg(target_os = "linux")]
+    let webview = {
+        let window = app
+            .get_window(MAIN)
+            .ok_or(Error::Config("main window is gone".into()))?;
+        // Position and size are ignored here — the GtkBox decides (see
+        // `layout_admin`) — but `add_child` requires them.
+        let webview = window.add_child(
+            WebviewBuilder::new(ADMIN_WEBVIEW, WebviewUrl::External(blank)),
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(800.0, 600.0),
+        )?;
+        layout_admin(&app, true);
+        webview
+    };
+
+    // Everywhere else: its own window, as before F14. Tabs are Linux-only
+    // because the native strip they need is a GTK widget; a child webview
+    // with no way to switch back would be worse than a separate window.
+    #[cfg(not(target_os = "linux"))]
+    let webview = WebviewWindowBuilder::new(&app, ADMIN_WEBVIEW, WebviewUrl::External(blank))
+        .title("Proxmox")
+        .inner_size(1280.0, 860.0)
+        .center()
+        .focused(true)
+        .build()?;
 
     // Hand the session ticket over so the panel opens already logged in,
     // rather than showing the Proxmox login form.
@@ -488,27 +479,26 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
-/// F14: whether the tab bar is drawn natively rather than in the page.
-///
-/// True on Linux, where GTK forces a native strip (see `layout_admin`). The
-/// page hides its own tab buttons when this is true, so there is only ever
-/// one tab bar.
-#[tauri::command]
-pub fn native_tabs() -> bool {
-    cfg!(target_os = "linux")
-}
-
 /// F14: switch back to the local Guests tab.
 ///
 /// The webview is hidden rather than closed, so returning to the Admin tab
 /// doesn't reload the Proxmox UI or need another ticket.
 #[tauri::command]
 pub fn hide_admin_panel(app: AppHandle) -> Result<()> {
-    if let Some(webview) = app.get_webview(ADMIN_WEBVIEW) {
-        webview.hide()?;
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(webview) = app.get_webview(ADMIN_WEBVIEW) {
+            webview.hide()?;
+        }
+        // The local webview expands to fill the window again.
+        layout_admin(&app, false);
     }
-    // The local webview expands to fill the window again.
-    layout_admin(&app, false);
+    // No tab to switch to off Linux: the panel is its own window, so hiding
+    // it would strand it. Closing is what the caller (session loss) wants.
+    #[cfg(not(target_os = "linux"))]
+    if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
+        window.close()?;
+    }
     Ok(())
 }
 
@@ -638,6 +628,7 @@ pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {
         panel.close()?;
     }
+    #[cfg(target_os = "linux")]
     layout_admin(&app, false);
     Ok(())
 }

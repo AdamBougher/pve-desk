@@ -7,17 +7,11 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- F14: local tab strip. Height must match TAB_BAR in commands.rs and
-       --tab-bar-height in style.css, or the admin webview covers it or
-       leaves a gap. The status line lives here because the admin webview
-       covers everything below this strip. -->
-  <nav id="tabbar">
-    <div id="tabs" hidden>
-      <button id="tab-admin" class="tab" aria-pressed="false">Admin</button>
-      <button id="tab-guests" class="tab" aria-pressed="false">Guests</button>
-    </div>
+  <!-- F14: the tab bar is a native GTK strip above this webview, not part of
+       the page — see DECISIONS.md. This is just the status line. -->
+  <div id="statusbar">
     <p id="status" role="status"></p>
-  </nav>
+  </div>
 
   <div id="content">
   <!-- F16: the app always opens here -->

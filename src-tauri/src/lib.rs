@@ -101,7 +101,6 @@ pub fn run() {
             commands::open_spice,
             commands::open_admin_panel,
             commands::hide_admin_panel,
-            commands::native_tabs,
             commands::logout,
         ])
         .setup(|app| {
@@ -109,17 +108,10 @@ pub fn run() {
             // once, here, rather than when the webview is created — Tauri
             // accumulates window event handlers, so doing it per connect
             // would stack a duplicate every time.
-            if let Some(window) = tauri::Manager::get_window(app, "main") {
-                let handle = app.handle().clone();
-                window.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::Resized(_)) {
-                        commands::relayout_admin(&handle);
-                    }
-                });
-            }
             // F14: on Linux the tab bar is a native widget, because GTK can
             // neither position a child webview nor cap one's height. See
-            // DECISIONS.md.
+            // DECISIONS.md. Nothing to re-fit on resize: the GtkBox lays its
+            // children out itself.
             #[cfg(target_os = "linux")]
             commands::install_native_tabs(app.handle());
             Ok(())
