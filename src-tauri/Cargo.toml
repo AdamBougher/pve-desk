@@ -42,6 +42,12 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 # pin the node's self-signed certificate (F4). Already in the tree via tauri;
 # the feature set matches tauri's so the types unify.
 webkit2gtk = { version = "2", features = ["v2_40"] }
+# GTK box packing for the tab bar (F14). On Linux a child webview is packed
+# into the window's GtkBox with expand=true, so it cannot be positioned —
+# the layout is controlled through the box instead. Version must match
+# webkit2gtk's own gtk dependency (^0.18) or the widget types don't unify.
+# Already in the tree via webkit2gtk, so nothing new is compiled.
+gtk = "0.18"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

@@ -6,9 +6,11 @@ use crate::config::{self, Config, HostConfig};
 use crate::error::{Error, Result};
 use crate::{secrets, spice, AppState};
 use tauri::webview::{Cookie, WebviewBuilder};
-use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl, Window,
-};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
+// Only the platforms that can position a webview need these (see
+// `layout_admin`): on Linux the GtkBox decides the geometry.
+#[cfg(not(target_os = "linux"))]
+use tauri::{Rect, Window};
 
 /// Label of the admin panel's webview (F14).
 ///
@@ -304,32 +306,82 @@ pub async fn open_spice(
     spice::launch(&cfg.remote_viewer_path, &node, vmid, &data).await
 }
 
-/// Where the admin webview sits: the full client area below the tab bar.
-fn admin_bounds(window: &Window) -> Result<(LogicalPosition<f64>, LogicalSize<f64>)> {
+/// Where the admin webview sits on platforms that can position a webview:
+/// the full client area below the tab bar.
+#[cfg(not(target_os = "linux"))]
+fn admin_bounds(window: &Window) -> Result<Rect> {
     let scale = window.scale_factor()?;
     let size = window.inner_size()?.to_logical::<f64>(scale);
-    Ok((
-        LogicalPosition::new(0.0, TAB_BAR),
-        LogicalSize::new(size.width, (size.height - TAB_BAR).max(0.0)),
-    ))
+    Ok(Rect {
+        position: LogicalPosition::new(0.0, TAB_BAR).into(),
+        size: LogicalSize::new(size.width, (size.height - TAB_BAR).max(0.0)).into(),
+    })
 }
 
-/// Keep the admin webview matched to the window.
+/// Fit the local webview around the admin one.
 ///
-/// Registered once as a resize handler in `lib.rs`, not per call — Tauri
-/// accumulates window event handlers, so registering it on each connect would
-/// stack duplicates. `auto_resize()` is deliberately not used: it stores
-/// position and size as *proportions* of the window, so a fixed-height tab bar
-/// would drift (at 700px tall a 36px offset becomes 72px at 1400px tall).
-pub fn relayout_admin(app: &AppHandle) {
+/// **Linux has no webview geometry.** `tauri-runtime-wry` builds a child
+/// webview into the window's `GtkBox` ("also works for multiwebviews :)"),
+/// and wry packs it with `pack_start(webview, true, true, 0)` and sets
+/// `is_in_fixed_parent = false` — so `set_bounds` is ignored entirely and the
+/// two webviews simply split the window vertically. That is what put the
+/// Proxmox UI in the bottom half with a blank strip above it.
+///
+/// The box is the right container for "fixed strip on top, content fills the
+/// rest"; only wry's hardcoded `expand = true` is wrong for our local
+/// webview. So the layout is set through the box: while the admin panel is
+/// up, the local webview is pinned to the tab bar's height and stops
+/// expanding; when it is down, the local webview expands to fill the window
+/// again.
+#[cfg(target_os = "linux")]
+pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
+    use gtk::prelude::{BoxExt, Cast, WidgetExt};
+
+    let Some(local) = app.get_webview(MAIN) else {
+        return;
+    };
+    let _ = local.with_webview(move |platform| {
+        let widget = platform.inner();
+        let Some(parent) = widget.parent() else {
+            return;
+        };
+        let Ok(vbox) = parent.downcast::<gtk::Box>() else {
+            return;
+        };
+        if admin_visible {
+            widget.set_size_request(-1, TAB_BAR as i32);
+            vbox.set_child_packing(&widget, false, false, 0, gtk::PackType::Start);
+        } else {
+            widget.set_size_request(-1, -1);
+            vbox.set_child_packing(&widget, true, true, 0, gtk::PackType::Start);
+        }
+    });
+}
+
+/// Windows and macOS build child webviews as real child views, where
+/// position and size are honoured.
+#[cfg(not(target_os = "linux"))]
+pub fn layout_admin(app: &AppHandle, _admin_visible: bool) {
     let (Some(webview), Some(window)) = (app.get_webview(ADMIN_WEBVIEW), app.get_window(MAIN))
     else {
         return;
     };
-    if let Ok((pos, size)) = admin_bounds(&window) {
-        let _ = webview.set_position(pos);
-        let _ = webview.set_size(size);
+    if let Ok(bounds) = admin_bounds(&window) {
+        let _ = webview.set_bounds(bounds);
     }
+}
+
+/// Re-fit on window resize.
+///
+/// Only meaningful where the webview is positioned by hand; on Linux the
+/// GtkBox re-lays out its children itself, so there is nothing to do.
+pub fn relayout_admin(app: &AppHandle) {
+    #[cfg(not(target_os = "linux"))]
+    if app.get_webview(ADMIN_WEBVIEW).is_some() {
+        layout_admin(app, true);
+    }
+    #[cfg(target_os = "linux")]
+    let _ = app;
 }
 
 /// F4/F14: show the Proxmox web UI, already logged in, as a webview inside
@@ -347,10 +399,8 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
 
     // Already built: just bring it back and re-fit it.
     if let Some(existing) = app.get_webview(ADMIN_WEBVIEW) {
-        let (pos, size) = admin_bounds(&window)?;
-        existing.set_position(pos)?;
-        existing.set_size(size)?;
         existing.show()?;
+        layout_admin(&app, true);
         return Ok(());
     }
 
@@ -363,12 +413,14 @@ pub async fn open_admin_panel(app: AppHandle, state: State<'_, AppState>) -> Res
         .map_err(|e| Error::Config(format!("bad base url: {e}")))?;
     let blank: Url = "about:blank".parse().expect("valid url");
 
-    let (pos, size) = admin_bounds(&window)?;
+    // The position and size are only honoured off Linux; there the GtkBox
+    // ignores them and `layout_admin` below sets the split instead.
     let webview = window.add_child(
         WebviewBuilder::new(ADMIN_WEBVIEW, WebviewUrl::External(blank)),
-        pos,
-        size,
+        LogicalPosition::new(0.0, TAB_BAR),
+        LogicalSize::new(800.0, 600.0),
     )?;
+    layout_admin(&app, true);
 
     // Hand the session ticket over so the panel opens already logged in,
     // rather than showing the Proxmox login form.
@@ -402,6 +454,8 @@ pub fn hide_admin_panel(app: AppHandle) -> Result<()> {
     if let Some(webview) = app.get_webview(ADMIN_WEBVIEW) {
         webview.hide()?;
     }
+    // The local webview expands to fill the window again.
+    layout_admin(&app, false);
     Ok(())
 }
 
@@ -531,5 +585,6 @@ pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {
         panel.close()?;
     }
+    layout_admin(&app, false);
     Ok(())
 }

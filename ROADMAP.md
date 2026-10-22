@@ -41,9 +41,13 @@ Built 2026-10-21 as a **child webview**, not an iframe — see `DECISIONS.md`,
   unknown — the GIR docs say only "when a TLS error occurs during a load
   operation" — and would have to be tested if anyone revisits the iframe.
 
-Unverified: everything visual. The geometry, tab switching, and whether the
-panel still opens signed in have not been seen running — `[~]` until they
-have been.
+First run 2026-10-21 showed the two webviews splitting the window in half:
+on Linux a child webview is packed into a `GtkBox` and cannot be positioned,
+so the whole `set_bounds` approach was inert. Layout now goes through the
+box's child packing instead (`DECISIONS.md`).
+
+Unverified: the reworked layout, tab switching, and whether the panel still
+opens signed in. `[~]` until seen running.
 
 ---
 

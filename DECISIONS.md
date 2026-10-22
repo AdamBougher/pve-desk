@@ -158,15 +158,37 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
   `origin.matches(context) && (webview matches || window matches)` — the
   local-only origin gate would have denied it anyway, but a hard rule should
   not rest on one mechanism.
+- **On Linux a child webview cannot be positioned at all** — found by
+  running it, after a first attempt built on the opposite assumption.
+  `tauri-runtime-wry` builds a `WindowChild` webview into the window's
+  `GtkBox` ("only way to account for menu bar height, and also works for
+  multiwebviews :)"), and wry packs it with
+  `pack_start(webview, true, true, 0)` and sets `is_in_fixed_parent = false`,
+  which makes `set_bounds` a no-op. Two webviews therefore split the window
+  vertically, which is exactly what the first attempt produced: Proxmox in
+  the bottom half, a blank strip above it.
+  The fix is to stop fighting the box, because a vertical box *is* the right
+  container for "fixed strip on top, content fills the rest". Only wry's
+  hardcoded `expand = true` is wrong for the local webview, so `layout_admin`
+  sets its packing directly: `expand = false` with a height request of
+  `TAB_BAR` while the panel is up, restored to expanding when it is down.
+  This needs `gtk` as a direct dependency, pinned to `0.18` to match
+  webkit2gtk's own — already in the tree, so nothing new compiles.
+  Windows and macOS build child webviews as real child views where position
+  and size are honoured, so they keep the `set_bounds` path. The two layouts
+  are split by `cfg`.
+- **Use `set_bounds`, never `set_position` + `set_size`** on the platforms
+  that do position webviews. Those two are read-modify-write: each reads the
+  webview's current geometry first, and wry's GTK `bounds()` reads the live X
+  window, so a layout pass between the calls makes the second overwrite the
+  first with stale coordinates. `set_bounds` applies the whole rectangle with
+  no read-back.
 - **`auto_resize()` is deliberately not used.** It stores position and size
-  as *proportions* of the window, so a fixed 36px tab bar offset becomes 72px
-  at double the window height. The webview is repositioned on
-  `WindowEvent::Resized` instead, from a handler registered once in `setup` —
-  Tauri accumulates window event handlers, so registering per connect would
-  stack duplicates.
+  as *proportions* of the window, so a fixed 36px tab bar offset would become
+  72px at double the window height.
 - **The tab bar height is duplicated** between `TAB_BAR` in `commands.rs` and
   `--tab-bar-height` in `ui/style.css`. Nothing keeps them in sync; if they
-  diverge the webview either covers the tabs or leaves a gap.
+  diverge the local webview either clips the tabs or leaves a gap under them.
 
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
