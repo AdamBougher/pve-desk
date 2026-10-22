@@ -16,99 +16,9 @@ the feature is built, and the answers go to `DECISIONS.md`.
 ## v1 (current scope)
 
 **The v1 feature work is done.** Everything that was in scope has shipped and
-been confirmed against a real node; what remains is making it installable,
-plus two gaps from the README picked up on 2026-10-22 (F19, F6).
-
-### F6. Power controls
-`[~]` Start / Shutdown / Stop on each guest-list row, driving the
-`power_action` command that was left registered when this was cut.
-
-**Revived 2026-10-22**, having been cut on 2026-10-21 — see `DECISIONS.md` for
-both halves of that. Written and passing fmt/clippy/test; **not once fired at
-a real guest.**
-
-**Q6.1 answered 2026-10-22: start, graceful shutdown, forced stop.** At most
-two buttons on a row, since which ones appear is decided by the guest's
-status. Reboot is dropped — it is shutdown then start, rarely wanted in a
-hurry, and still in the admin panel. The `api.rs` allow-list was trimmed to
-the same three, so it stays the narrowest that works; `reboot` is now refused
-there.
-
-**Q6.2 answered 2026-10-22: only the forced stop asks.** Start and shutdown
-are reversible and fire on one click. Stop can lose whatever the guest had not
-flushed, so it goes through the same in-page confirmation panel as F3's
-certificate trust and F19's removal, naming the guest.
-
-Decided while implementing:
-- **A status that is neither `running` nor `stopped` gets no buttons** —
-  paused, suspended, or the `unknown` a down node reports for its guests.
-  Guessing wrong there means firing the wrong action at a real VM, and the
-  admin panel covers those states.
-- **In-flight guests are tracked outside the DOM** (a `busy` set keyed
-  `node/vmid`). `render()` rebuilds every row from scratch, including on the
-  30s refresh, which would otherwise re-enable a button mid-request and let a
-  second POST through.
-- **Two refreshes after each action**, immediately and again after 3s.
-  Proxmox answers with a task id and works on it afterwards, so
-  `/cluster/resources` lags the request. The 3s is a guess, like F7's read
-  window — if a row still shows the old status after an action, that is why.
-
-Left to verify (**needs the live node** — none of this has run):
-- Start a stopped guest, shut down a running one, and confirm the row's status
-  catches up within the two refreshes.
-- Force-stop something expendable and confirm the panel asks first and Cancel
-  really does nothing.
-- An LXC container as well as a VM: `kind` picks the endpoint, and only the
-  allow-list has been exercised.
-- A guest whose shutdown is refused (no agent, ignoring ACPI) — the error
-  should land in the status line, not silently.
-- Whether `VM.PowerMgmt` is actually present on the account; the guest list
-  only ever needed `VM.Audit`, so a permissions error here is possible and
-  has never been seen.
-
-### F19. Remove a saved connection
-`[~]` A **Remove** button per launcher row: deletes the `[[hosts]]` entry and
-its keyring password, after an in-page confirmation. Answers Q16.5 and the
-"Forget this login" note, both of which were waiting on the same decision.
-
-Asked for 2026-10-22. Written and passing fmt/clippy/test, but **not yet
-clicked**: it needs a GUI run, and nothing about it can be unit-tested past
-`Config::remove_host` without writing to the real keyring.
-
-**Q19.1 answered 2026-10-22: one action, both destroyed.** Config entry and
-keyring password go together. A keyring entry is only reachable through its
-config entry, so keeping one without the other leaves a secret the app can
-neither see nor clean up. Rejected: a separate "forget password" that keeps
-the row (there is no password prompt — see the keyring-fallback gap below — so
-such a row can only sit there with Connect greyed out), and deleting the
-config entry alone (orphaned secrets, and it works against the hard rule about
-handling the password carefully).
-
-**Q19.2 answered 2026-10-22: launcher only, refused while connected.** The
-button is greyed out on the row holding the live session and
-`remove_connection` returns `Error::Connected` regardless of what the page
-asks. The session is keyed by the config entry's id, so deleting that entry
-underneath would leave a session whose refresh and admin panel can no longer
-resolve a host. So: log out, then remove. **This closes "Forget this login" as
-a no** — there is no destructive button next to Log out, and no one-click
-logout-and-delete.
-
-Ordering, decided while implementing: the keyring password is deleted
-**before** the config is rewritten. A keyring that refuses (locked, no Secret
-Service) then leaves everything in place to retry; the reverse order would
-orphan the secret, which is the outcome Q19.1 rejected. A missing keyring
-entry counts as success — the goal is that no password is left, and there
-being none already satisfies it.
-
-Left to verify (needs a GUI run, not a node):
-- Remove a row and confirm it disappears, `config.toml` loses the `[[hosts]]`
-  entry, and the password is gone from the keyring
-  (`secret-tool search service pve-desk`).
-- Cancel leaves everything intact.
-- Removing the last entry leaves a working launcher — `default = ""` is then
-  the config's state, which round-trips in tests but has never been loaded by
-  the running app.
-- The Remove button really is dead on a connected row.
+been confirmed against a real node — including the two README gaps picked up
+on 2026-10-22, power buttons (F6) and connection removal (F19), both verified
+the same day. What remains is making it installable.
 
 ### F12. Packaging and release
 `[ ]` A `.desktop` entry, an icon, and something installable.
@@ -158,8 +68,10 @@ Left to do:
 file → launch `remote-viewer` with it → delete the file after launch.
 
 Parked, not cut: `remote-viewer` is not installed on this desktop, so it has
-never run. It is also **unreachable** — nothing in `ui/` calls `open_spice`;
-the button went with F6's power controls.
+never run. It is also **unreachable** — nothing in `ui/` calls `open_spice`.
+Its button was removed when F6's power controls were cut and did not come back
+with them on 2026-10-22; what did come back is somewhere to put it, since each
+row now has an actions cell (`powerCell` in `main.js`).
 
 Hardened 2026-10-21 (`.vv` handling), which was the part that had to be right
 before this could ever be switched on: mode 0600 at creation, a distinct file
@@ -178,7 +90,10 @@ Prerequisites when that happens, in order:
    is also what makes the launch testable at all).
 2. Set that VM's **Hardware → Display** to `SPICE (qxl)`. Without it the
    SPICE console cannot connect, whatever the console menu offers.
-3. Add a SPICE button to the guest list, on qualifying rows only.
+3. Add a SPICE button to the guest list, on qualifying rows only — into the
+   actions cell the power buttons now occupy, and only for `qemu` rows whose
+   display is SPICE, which `/cluster/resources` does not report (it needs a
+   per-VM config read).
 4. Measure the real read window and replace the 3s guess in `spice.rs`.
 
 Don't confuse two Proxmox settings when checking this (it cost a round of
@@ -434,6 +349,12 @@ Things that are built but unproven, so they can't be called working.
   installed here, so how long it actually needs to read the file before
   deletion has never been measured. A launch failing with a missing-file
   error is the symptom.
+- **The 3-second wait before a post-action status re-read is a guess** (F6).
+  A power action refreshes the list immediately and again after 3s, because
+  Proxmox answers with a task id and `/cluster/resources` lags behind the
+  work. The figure was never measured against a slow node or a big VM; a row
+  still showing the old status after an action is the symptom, and the fix is
+  a longer second read, not a faster one.
 - **Spawned viewers are never reaped.** `launch` drops the `Child` without
   waiting, so on unix each closed console leaves a zombie until pve-desk
   exits. Pre-existing, harmless at the scale of a few consoles, but it is a

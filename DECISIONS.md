@@ -126,18 +126,66 @@ write path in an app whose hard rules are about not letting the frontend
 drive arbitrary API calls. Either exercise it or delete it — exercising it
 won.
 
-What the revival settled is in **F6 in `ROADMAP.md`** and moves here when it
-has been fired at a real guest: which actions exist (Q6.1), what asks first
-(Q6.2), and why the allow-list check is now a free function instead of inline
-in `power`. Two things belong here either way:
+**Confirmed working by the user 2026-10-22**, the same day it was built.
 
-- **The allow-list shrank to start / shutdown / stop.** `reboot` is refused by
-  `api::check_power` now, not merely unused, so anything that wants it has to
-  add it back deliberately. Narrowest that works, per the hard rule.
+- **Q6.1 Start, graceful shutdown, forced stop.** Not reboot: it is shutdown
+  then start, rarely wanted in a hurry, and still in the admin panel. The
+  `api.rs` allow-list shrank to the same three, so `reboot` is now *refused*
+  by `api::check_power` rather than merely unused — anything that wants it
+  back has to say so. Narrowest that works, per the hard rule.
+- **Q6.2 Only the forced stop asks.** Start and shutdown are reversible and
+  fire on one click; stop can lose whatever the guest had not flushed, so it
+  reuses the in-page confirmation panel that F3's certificate trust and F19's
+  removal use. Three confirmations, one helper (`askConfirm` in `main.js`).
 - **Matching is exact, not sanitising.** An exact match against a fixed list
   cannot carry a path segment, a traversal or a query string, which is the
   property that keeps the frontend off arbitrary endpoints. Don't replace it
   with escaping.
+- **The check is a free function, not inline in `power`.** `Session::power`
+  needs a live server, so the guard could not be tested through it. As
+  `api::check_power` it has tests for traversal, query strings, case folding
+  and the dropped `reboot` — the hard rule is now covered by tests rather
+  than by reading.
+- **Buttons follow the guest's status, and an unrecognised status gets
+  none.** Running offers Shutdown and Stop, stopped offers Start; paused,
+  suspended, and the `unknown` a down node reports for its guests offer
+  nothing. Guessing wrong there means firing the wrong action at a real VM,
+  and the admin panel covers those states. The status lookup uses
+  `Object.hasOwn`, because the key comes from the server.
+- **In-flight guests are tracked outside the DOM** (a `busy` set keyed
+  `node/vmid`). `render()` rebuilds every row from scratch, including on the
+  30s refresh, which would otherwise re-enable a button mid-request and let a
+  second POST through.
+- **Two refreshes per action, immediately and after 3s.** Proxmox answers with
+  a task id and works on it afterwards, so `/cluster/resources` lags the
+  request. The 3s is a guess — see Known gaps in `ROADMAP.md`.
+
+### Removing a saved connection (F19, 2026-10-22)
+Answers **Q16.5** and the **"Forget this login"** question together; both had
+been waiting on the same decision. Confirmed working by the user 2026-10-22.
+
+- **Q19.1 One action: the config entry and the keyring password go
+  together.** A keyring entry is only reachable through its config entry, so
+  keeping one without the other leaves a secret the app can neither show nor
+  clean up. Rejected: a separate "forget password" that keeps the row (there
+  is no password prompt — see the keyring fallback gap — so the row could only
+  sit there with Connect greyed out), and deleting the config entry alone,
+  which orphans the secret.
+- **Q19.2 Launcher only, refused while connected.** Greyed in the page, and
+  `Error::Connected` in the backend whatever the page asks. The session is
+  keyed by the entry's id, so deleting it underneath would leave a session
+  whose refresh and admin panel can no longer resolve a host. **"Forget this
+  login" is therefore a no**: log out, then remove. No destructive button
+  beside Log out, and no one-click logout-and-delete.
+- **The password is deleted before the config is rewritten.** A keyring that
+  refuses — locked, or no Secret Service — then leaves everything in place to
+  retry. The reverse order orphans the secret, which is what Q19.1 rejected.
+  A missing keyring entry counts as success: the goal is that no password is
+  left behind, and there being none already satisfies it.
+- `Config::remove_host` repoints `default` at a surviving entry, or clears it,
+  so it never names something deleted. **`default = ""` is a valid state**
+  meaning "no row preselected" — it is what removing the last connection
+  leaves behind.
 
 ### Guest list (2026-10-21)
 - **Q5.1** Refresh every **30s**, matching cv4pve.
