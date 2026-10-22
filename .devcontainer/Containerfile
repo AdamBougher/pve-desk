@@ -1,0 +1,45 @@
+# Build/dev environment for pve-desk (F18).
+#
+# Debian 13 (trixie) rather than Arch: it matches the .deb bundle target (F12)
+# and still ships webkit2gtk-4.1 2.54.0, so the v2_40 features the certificate
+# pinning in commands.rs needs are present. Checked 2026-10-21 against
+# debian:stable-slim; the host has 2.54.1.
+FROM debian:13-slim
+
+# Rust comes from rustup, pinned. Debian's own rustc is 1.85.1, well behind
+# the toolchain this project builds with.
+ARG RUST_VERSION=1.97.1
+ARG USERNAME=dev
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# No libssl-dev on purpose: this project uses reqwest with rustls and must not
+# pick up an OpenSSL dependency (CLAUDE.md, "Decisions already made").
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential \
+      pkg-config \
+      curl \
+      ca-certificates \
+      git \
+      libwebkit2gtk-4.1-dev \
+      libsoup-3.0-dev \
+      librsvg2-dev \
+      libgtk-3-dev \
+      libglib2.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Match the host uid so rootless podman (--userns=keep-id) maps bind-mounted
+# files to the right owner instead of root-owned build output.
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID --create-home $USERNAME
+
+USER $USERNAME
+ENV PATH=/home/$USERNAME/.cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain $RUST_VERSION --profile minimal \
+        --component rustfmt --component clippy
+
+WORKDIR /workspace

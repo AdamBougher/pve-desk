@@ -1,0 +1,48 @@
+{
+  "name": "pve-desk",
+  "build": {
+    "dockerfile": "Containerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+
+  // Rootless podman: map the container user to the host user so files created
+  // in the bind mount aren't owned by a foreign uid.
+  "runArgs": ["--userns=keep-id"],
+
+  // The Tauri dependency tree is large. Without these the registry is
+  // re-downloaded and everything recompiles on every container rebuild.
+  "mounts": [
+    "source=pve-desk-cargo-registry,target=/home/dev/.cargo/registry,type=volume",
+    "source=pve-desk-target,target=/workspace/src-tauri/target,type=volume"
+  ],
+
+  // Tier 2 (F18, Q18.1): running the GUI from inside the container.
+  // Not enabled yet — build and test first. To turn on, merge into the
+  // settings above and read the notes in FEATURES.md F18 first:
+  //
+  //   "mounts": [
+  //     "source=${localEnv:XDG_RUNTIME_DIR}/wayland-1,target=/run/user/1000/wayland-1,type=bind",
+  //     "source=${localEnv:XDG_RUNTIME_DIR}/bus,target=/run/user/1000/bus,type=bind"
+  //   ],
+  //   "runArgs": ["--userns=keep-id", "--device=/dev/dri"],
+  //   "containerEnv": {
+  //     "XDG_RUNTIME_DIR": "/run/user/1000",
+  //     "WAYLAND_DISPLAY": "wayland-1",
+  //     "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"
+  //   }
+  //
+  // The D-Bus socket is the one that matters most: without it there is no
+  // Secret Service, so the keyring is unreachable and saved logins fail.
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "tamasfe.even-better-toml"],
+      "settings": {
+        "rust-analyzer.linkedProjects": ["src-tauri/Cargo.toml"]
+      }
+    }
+  },
+
+  "postCreateCommand": "rustc --version && cargo --version"
+}
