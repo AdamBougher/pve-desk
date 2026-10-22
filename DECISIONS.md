@@ -112,6 +112,33 @@ via `webkit2gtk`'s `allow_tls_certificate_for_host`.
 - It opens automatically on connect, because it is the view actually used.
   (Q16.3)
 
+### Power controls — cut, then revived (F6)
+**Cut 2026-10-21.** The embedded Proxmox UI already does start / shutdown /
+reboot, and that is where the work happened in practice, so our own buttons
+duplicated it without ever being exercised. The backend was left registered
+and undriven, with the note "delete or revive when F15 is decided".
+
+**Revived 2026-10-22** at the user's request. What changed the answer: the
+Guests tab is read-only, so stopping a guest meant switching to Admin and
+walking the Proxmox tree; and `Session::power` was reachable from the
+frontend yet never called, which is the worst of the three states for a
+write path in an app whose hard rules are about not letting the frontend
+drive arbitrary API calls. Either exercise it or delete it — exercising it
+won.
+
+What the revival settled is in **F6 in `ROADMAP.md`** and moves here when it
+has been fired at a real guest: which actions exist (Q6.1), what asks first
+(Q6.2), and why the allow-list check is now a free function instead of inline
+in `power`. Two things belong here either way:
+
+- **The allow-list shrank to start / shutdown / stop.** `reboot` is refused by
+  `api::check_power` now, not merely unused, so anything that wants it has to
+  add it back deliberately. Narrowest that works, per the hard rule.
+- **Matching is exact, not sanitising.** An exact match against a fixed list
+  cannot carry a path segment, a traversal or a query string, which is the
+  property that keeps the frontend off arbitrary endpoints. Don't replace it
+  with escaping.
+
 ### Guest list (2026-10-21)
 - **Q5.1** Refresh every **30s**, matching cv4pve.
 - **Q5.2** A **search box only**, over name, VMID, node and tags, filtering
@@ -298,13 +325,6 @@ One source each: a decision is in `CLAUDE.md` or in this file, never both.
 first-run screen; the same fields are the launcher's "Add a connection" form,
 open by default when no connections are saved. Input validation lives in
 `HostConfig::validate`.
-
-**F6. Power controls** `[-]` Cut 2026-10-21. The embedded Proxmox UI already
-does start / shutdown / reboot, and that is where the work happens in
-practice, so our own buttons duplicated it without ever being exercised. The
-backend stays and is harmless: `Session::power` and its allow-list are still
-registered, just not driven by any UI. Delete or revive when F15 is decided;
-Q6.1 and Q6.2 are moot until then.
 
 **F8. VNC console** and **F9. LXC terminal** `[-]` Dropped 2026-10-21,
 superseded by F4. The embedded Proxmox UI provides both the noVNC console and

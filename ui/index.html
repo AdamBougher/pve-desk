@@ -72,7 +72,7 @@
     </details>
   </section>
 
-  <!-- F5: read-only guest summary. Power controls are the admin panel's job (F6 cut). -->
+  <!-- F5: guest summary, with F6's power buttons on each row. -->
   <section id="main" hidden>
     <header>
       <h1>Guests <span id="count" class="count"></span></h1>
@@ -87,10 +87,24 @@
     </header>
     <table>
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Type</th><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th></tr>
+        <tr><th>ID</th><th>Name</th><th>Type</th><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th><th>Power</th></tr>
       </thead>
       <tbody id="guests"></tbody>
     </table>
+
+    <!-- F6 Q6.2: only the forced stop asks. Start and shutdown fire at once. -->
+    <div id="power-confirm" hidden>
+      <h2>Force stop?</h2>
+      <p>
+        <strong id="power-target"></strong> will be stopped immediately, like
+        pulling its power. Anything it had not written to disk is lost. Use
+        Shutdown instead if the guest is responding.
+      </p>
+      <div class="confirm-actions">
+        <button id="power-ok">Force stop</button>
+        <button id="power-cancel">Cancel</button>
+      </div>
+    </div>
   </section>
 
   </div>

@@ -19,6 +19,53 @@ the feature is built, and the answers go to `DECISIONS.md`.
 been confirmed against a real node; what remains is making it installable,
 plus two gaps from the README picked up on 2026-10-22 (F19, F6).
 
+### F6. Power controls
+`[~]` Start / Shutdown / Stop on each guest-list row, driving the
+`power_action` command that was left registered when this was cut.
+
+**Revived 2026-10-22**, having been cut on 2026-10-21 — see `DECISIONS.md` for
+both halves of that. Written and passing fmt/clippy/test; **not once fired at
+a real guest.**
+
+**Q6.1 answered 2026-10-22: start, graceful shutdown, forced stop.** At most
+two buttons on a row, since which ones appear is decided by the guest's
+status. Reboot is dropped — it is shutdown then start, rarely wanted in a
+hurry, and still in the admin panel. The `api.rs` allow-list was trimmed to
+the same three, so it stays the narrowest that works; `reboot` is now refused
+there.
+
+**Q6.2 answered 2026-10-22: only the forced stop asks.** Start and shutdown
+are reversible and fire on one click. Stop can lose whatever the guest had not
+flushed, so it goes through the same in-page confirmation panel as F3's
+certificate trust and F19's removal, naming the guest.
+
+Decided while implementing:
+- **A status that is neither `running` nor `stopped` gets no buttons** —
+  paused, suspended, or the `unknown` a down node reports for its guests.
+  Guessing wrong there means firing the wrong action at a real VM, and the
+  admin panel covers those states.
+- **In-flight guests are tracked outside the DOM** (a `busy` set keyed
+  `node/vmid`). `render()` rebuilds every row from scratch, including on the
+  30s refresh, which would otherwise re-enable a button mid-request and let a
+  second POST through.
+- **Two refreshes after each action**, immediately and again after 3s.
+  Proxmox answers with a task id and works on it afterwards, so
+  `/cluster/resources` lags the request. The 3s is a guess, like F7's read
+  window — if a row still shows the old status after an action, that is why.
+
+Left to verify (**needs the live node** — none of this has run):
+- Start a stopped guest, shut down a running one, and confirm the row's status
+  catches up within the two refreshes.
+- Force-stop something expendable and confirm the panel asks first and Cancel
+  really does nothing.
+- An LXC container as well as a VM: `kind` picks the endpoint, and only the
+  allow-list has been exercised.
+- A guest whose shutdown is refused (no agent, ignoring ACPI) — the error
+  should land in the status line, not silently.
+- Whether `VM.PowerMgmt` is actually present on the account; the guest list
+  only ever needed `VM.Audit`, so a permissions error here is possible and
+  has never been seen.
+
 ### F19. Remove a saved connection
 `[~]` A **Remove** button per launcher row: deletes the `[[hosts]]` entry and
 its keyring password, after an in-page confirmation. Answers Q16.5 and the

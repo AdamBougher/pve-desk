@@ -24,7 +24,9 @@ form { display: grid; gap: 8px; max-width: 320px; }
 label { display: grid; gap: 2px; }
 table { width: 100%; border-collapse: collapse; margin-top: 8px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8884; }
+/* F6: power buttons, kept compact so a row stays one line high. */
 td.actions { display: flex; gap: 4px; }
+td.actions button { padding: 1px 8px; font-size: 0.9em; }
 .st-running { color: #2a9d4b; }
 .st-stopped { color: #888; }
 #status { opacity: 0.7; margin: 0; font-size: 0.9em; }
@@ -47,13 +49,15 @@ td.actions { display: flex; gap: 4px; }
 /* Confirmations shown before something irreversible: F3 certificate trust,
    F19 connection removal. */
 #cert-confirm,
-#remove-confirm {
+#remove-confirm,
+#power-confirm {
   border: 1px solid #a66;
   padding: 0.75rem 1rem;
   margin: 1rem 0;
 }
 #cert-confirm h2,
-#remove-confirm h2 { margin-top: 0; font-size: 1.1em; }
+#remove-confirm h2,
+#power-confirm h2 { margin-top: 0; font-size: 1.1em; }
 #cert-fingerprint {
   display: block;
   word-break: break-all;
@@ -62,6 +66,7 @@ td.actions { display: flex; gap: 4px; }
 }
 .cert-actions,
 .confirm-actions { display: flex; gap: 0.5rem; }
-/* The one button in the launcher that destroys something. */
+/* Buttons that destroy something: removing a connection (F19), forcing a
+   guest to stop (F6). */
 button.danger { color: #c66; }
 button.danger:disabled { color: inherit; }

@@ -36,6 +36,7 @@ let guests = [];
 // Wipe the table and the cached list together (logout, session loss).
 function clearGuests() {
   guests = [];
+  busy.clear();
   $("guests").replaceChildren();
   $("search").value = "";
   $("count").textContent = "";
@@ -265,7 +266,7 @@ $("logout").addEventListener("click", async () => {
   }
 });
 
-// ---- F5: guest list (read-only; power controls are the admin panel's job) ----
+// ---- F5: guest list, with F6 power buttons per row ----
 
 function fmtMem(bytes) {
   if (!bytes) return "–";
@@ -299,6 +300,90 @@ function cell(tr, text, className) {
   tr.append(td);
 }
 
+// ---- F6: power actions ----
+//
+// Q6.1: start, graceful shutdown, forced stop. The same three are the
+// allow-list in api.rs — anything else is refused there, so this list is a
+// label for the user, not the guard.
+//
+// Which buttons a row gets is decided by its status. A status that is neither
+// running nor stopped (paused, suspended, a node that is down reporting
+// "unknown") gets none: guessing wrong here means firing the wrong action at
+// a real VM, and the admin panel handles those cases.
+const POWER_BUTTONS = {
+  running: [
+    { action: "shutdown", label: "Shutdown", danger: false },
+    { action: "stop", label: "Stop", danger: true },
+  ],
+  stopped: [{ action: "start", label: "Start", danger: false }],
+};
+
+// Guests with a request in flight, keyed node/vmid. Held outside the DOM
+// because render() rebuilds every row from scratch — including on the 30s
+// refresh — which would otherwise re-enable a button mid-request and let a
+// second POST through.
+const busy = new Set();
+
+const guestKey = (g) => `${g.node}/${g.vmid}`;
+const guestLabel = (g) => (g.name ? `${g.name} (${g.vmid})` : `${g.vmid}`);
+
+async function power(g, action, label) {
+  // Q6.2: only the forced stop asks, because it is the one that can lose
+  // data. Start and shutdown are reversible and fire on one click.
+  if (action === "stop") {
+    $("power-target").textContent = guestLabel(g);
+    if (!(await askConfirm("power-confirm", "power-ok", "power-cancel"))) {
+      status("Cancelled — the guest was left alone.");
+      return;
+    }
+  }
+
+  busy.add(guestKey(g));
+  render();
+  status(`${label} ${guestLabel(g)}…`);
+  try {
+    await invoke("power_action", {
+      node: g.node,
+      kind: g.kind,
+      vmid: g.vmid,
+      action,
+    });
+    status(`${label} requested for ${guestLabel(g)}.`);
+  } catch (err) {
+    status(`${label} failed for ${guestLabel(g)}: ${err}`);
+  } finally {
+    busy.delete(guestKey(g));
+    // Re-enable the row here rather than leaving it to refresh(), which
+    // returns early if the fetch fails.
+    render();
+  }
+  // Proxmox answers with a task id and works on it afterwards, so the status
+  // in /cluster/resources lags the request. Read it now for the error case,
+  // and once more when the task has had time to finish.
+  refresh();
+  setTimeout(refresh, 3000);
+}
+
+function powerCell(tr, g) {
+  const td = document.createElement("td");
+  td.className = "actions";
+  const working = busy.has(guestKey(g));
+  // `hasOwn`, not a bare lookup: g.status comes from the server, and
+  // "constructor" would otherwise resolve to something that isn't a list.
+  const buttons = Object.hasOwn(POWER_BUTTONS, g.status)
+    ? POWER_BUTTONS[g.status]
+    : [];
+  for (const b of buttons) {
+    const button = document.createElement("button");
+    button.textContent = b.label;
+    if (b.danger) button.className = "danger";
+    button.disabled = working;
+    button.addEventListener("click", () => power(g, b.action, b.label));
+    td.append(button);
+  }
+  tr.append(td);
+}
+
 function row(g) {
   const tr = document.createElement("tr");
   cell(tr, g.vmid);
@@ -310,6 +395,7 @@ function row(g) {
   cell(tr, g.status, known ? `st-${g.status}` : undefined);
   cell(tr, g.cpu != null ? `${(g.cpu * 100).toFixed(0)}%` : "–");
   cell(tr, `${fmtMem(g.mem)} / ${fmtMem(g.maxmem)}`);
+  powerCell(tr, g);
   return tr;
 }
 
