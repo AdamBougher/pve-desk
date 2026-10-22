@@ -1,231 +1,288 @@
 # pve-desk
 
-A Linux desktop client for Proxmox VE, written in Rust (Tauri 2).
+[![ci](https://github.com/AdamBougher/pve-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/AdamBougher/pve-desk/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/AdamBougher/pve-desk)](https://github.com/AdamBougher/pve-desk/releases)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![platform: Linux](https://img.shields.io/badge/platform-Linux-informational)
 
-I wanted to be able to access my Proxmox admin GUI from a desktop app. I used
-to use Sakakun's [Proxmox-Desktop-Client](https://github.com/sakakun/Proxmox-Desktop-Client)
-for Windows, and I wanted a similar experience on Linux.
+A Linux desktop client for [Proxmox VE](https://www.proxmox.com/en/proxmox-virtual-environment/overview),
+written in Rust with [Tauri 2](https://v2.tauri.app/). It saves your logins,
+opens the Proxmox web UI already signed in, and lists your VMs and containers
+alongside it — one window, no login form, no browser tab.
 
-Status: **v1 — feature complete for its scope, in daily use.** Connecting,
-the embedded admin panel, its consoles, the guest list and session refresh
-are all verified against a real Proxmox node. Packaging is the remaining
-work before a tagged release; see `ROADMAP.md` for that and for what was
-deliberately left out, and `DECISIONS.md` for why things are built the way
-they are.
+> Most of the code here was written by an AI model under my direction.
+> See [AI assistance](#ai-assistance) before you point it at a server.
 
-Most of the code here was written by an AI model under my direction — see
-[AI assistance](#ai-assistance) before you run it.
+## Screenshots
 
-Certificates are verified: a node's certificate must either validate against
-the system trust store or match the fingerprint you confirmed when the
-connection was first set up. Nothing in the app accepts a certificate blindly.
+_Coming — see [docs/screenshots/](docs/screenshots/)._
 
-## What works
+<!-- Save the two PNGs as docs/screenshots/launcher.png and admin.png, then
+     delete the line above and uncomment this table.
 
-- **Connection launcher.** The app always opens on a list of saved
-  connections. Each shows whether the node is reachable, and whether the
-  session ticket is still valid. No credentials are sent by the reachability
-  check.
-- **Saved logins.** Password lives in the system keyring; host, port,
-  username and realm in a config file. Several connections can be saved;
-  one is live at a time.
+| Launcher | Admin panel |
+| --- | --- |
+| ![The connection launcher](docs/screenshots/launcher.png) | ![The embedded Proxmox web UI](docs/screenshots/admin.png) |
+-->
+
+## Why
+
+I wanted my Proxmox admin GUI as a desktop app. I used to use Sakakun's
+[Proxmox-Desktop-Client](https://github.com/sakakun/Proxmox-Desktop-Client) on
+Windows and wanted the same experience on Linux, so I built one.
+
+## Features
+
+- **Connection launcher.** The app opens on your saved connections. Each one
+  shows whether the node is reachable and whether its session is still valid.
+  The reachability check sends no credentials.
+- **Saved logins.** Your password goes to the system keyring. Host, port,
+  username and realm go to a plain config file. Several connections can be
+  saved; one is signed in at a time.
 - **One window, two tabs.** An **Admin** / **Guests** strip switches between
-  the Proxmox web UI and the guest list without leaving the window. The
-  Admin tab is greyed out until you are connected.
-- **Embedded admin panel.** The full Proxmox web UI, already signed in — no
-  login form. Opens automatically on connect.
-- **Certificate verification.** The API client checks the node against the
-  OS trust store first and falls back to the fingerprint you confirmed, so a
-  real certificate (Tailscale, Let's Encrypt, or a CA you imported) works
-  and survives renewal, while Proxmox's self-signed default is pinned. An
-  unknown certificate stops the connection and shows you its SHA-256 before
-  anything is sent. The admin panel webview pins the same fingerprint.
-- **Consoles.** Shell and container/VM consoles work inside the panel.
-- **Guest list.** Read-only summary of VMs and containers, refreshed every
-  30s, with a search box over name, VMID, node and tag. Templates are hidden.
-- **Session refresh.** Proxmox tickets last ~2 hours. A session older than
-  ~90 minutes is renewed before the next call, and a ticket the node rejects
-  anyway triggers one silent re-login and a retry. If that also fails, the
-  app returns you to the launcher and says why.
-- **Log out.** Drops the session and returns to the launcher. Saved
-  credentials are kept.
+  the Proxmox web UI and the guest list. Admin is greyed out until you
+  connect.
+- **Embedded admin panel, already signed in.** The full Proxmox web UI with
+  no login form — the app injects the session ticket as a cookie before the
+  page loads. Opens automatically on connect.
+- **Consoles work.** Node shells and VM/container consoles run inside the
+  panel.
+- **Guest list.** A read-only summary of every VM and container — status,
+  node, VMID, tags — refreshed every 30 seconds, with a search box over name,
+  VMID, node and tag. Templates are hidden.
+- **Certificate verification that survives renewal.** The node must either
+  validate against your OS trust store *or* match the SHA-256 fingerprint you
+  confirmed when you first set the connection up. So a real certificate
+  (Let's Encrypt, Tailscale, your own CA) just works, while Proxmox's
+  self-signed default is pinned. An unknown certificate stops the connection
+  and shows you the fingerprint before anything is sent. The admin panel's
+  webview pins the same fingerprint.
+- **Session refresh.** Proxmox tickets last about two hours. A session older
+  than ~90 minutes is renewed before the next call, and a ticket the node
+  rejects anyway triggers one silent re-login and a retry. If that fails too,
+  you land back on the launcher with the reason.
+- **Log out.** Drops the session, keeps the saved credentials.
 
 ## What isn't done
 
-- **SPICE (F7)** is written but has never run — `remote-viewer` isn't
-  installed here, and there's no button for it in the UI yet. Its `.vv` file
-  handling *is* now hardened: created mode 0600, one file per launch, and
-  deleted a few seconds after the viewer starts.
-- **Removing a saved connection** isn't implemented (it means deleting a
-  keyring entry, which is a decision still open).
-- **Native power controls** were cut: the admin panel already does this
-  better. The backend remains if a native UI is ever revisited (F15).
-- **Packaging.** No release is published yet. The plan is an **AppImage**
-  for general use and an **Arch package** for the machine this is actually
-  developed and run on (F12).
-- **Linux first, by choice.** Windows and macOS still build, but where the
-  UI can't be shared Linux wins — the tab strip is a GTK widget, so on other
-  platforms the admin panel stays a separate window. See F17 and "Linux
-  first" in `DECISIONS.md`.
+Honest limits, so you can judge it before installing:
 
-`ROADMAP.md` keeps a "Known gaps" list of what is built but still unproven.
+- **SPICE consoles don't have a button.** The `.vv` file handling is written
+  and hardened (mode 0600, one file per launch, deleted seconds after the
+  viewer starts), but `remote-viewer` isn't installed on my machine, so it has
+  never actually run. Use the in-panel consoles instead.
+- **You can't delete a saved connection** from the launcher yet. It means
+  destroying a keyring entry, and I haven't decided how that should behave.
+- **No native power buttons.** Start/stop/shutdown live in the embedded admin
+  panel, which does it better than I would. The backend code is still there.
+- **Linux only, in practice.** Windows and macOS compile — Windows is built in
+  CI — but neither has ever been run, and where the UI can't be shared, Linux
+  wins: the tab strip is a GTK widget, so elsewhere the admin panel would be a
+  separate window.
+- **A few paths are unproven**, including the real 90-minute ticket refresh
+  (only tested with the threshold lowered to seconds) and running two saved
+  connections side by side.
 
-## Installing
+[ROADMAP.md](ROADMAP.md) keeps the full "Known gaps" list; treat it as the
+boundary of what works.
 
-No release is published yet — the machinery is written but has never been
-run. When it is, there will be two routes:
+## Requirements
 
-- **AppImage**, attached to the [GitHub release](https://github.com/AdamBougher/pve-desk/releases).
-  One file, no distro assumptions: `chmod +x` and run it.
-- **Arch package**, from `packaging/arch/PKGBUILD`:
+On the Proxmox side:
 
-  ```sh
-  cd packaging/arch && makepkg -si
-  ```
+- A Proxmox VE node reachable over HTTPS.
+- An account that signs in with **a single factor** — the app fetches a ticket
+  from `/api2/json/access/ticket` and has no interactive TOTP prompt.
+- Permissions: `VM.Audit` to list guests, `VM.PowerMgmt` for power actions,
+  `VM.Console` for SPICE. A read-only account with `VM.Audit` is enough for
+  the guest list.
 
-Either way you still need a Secret Service keyring running (see Building).
+On your desktop:
 
-Until a tag is pushed, build it yourself.
+- A **Secret Service** keyring running — GNOME Keyring, KWallet, or KeePassXC
+  with Secret Service enabled. Without one, the password can't be stored and
+  saved logins won't work.
+- `virt-viewer`, only if you want SPICE.
 
-## Building
+## Install
 
-Install the dependencies for your distro, then `cargo run`. This is the route
-you want: it's also what lets you actually launch the app.
+### AppImage
 
-Arch / CachyOS:
+Grab it from the [latest release](https://github.com/AdamBougher/pve-desk/releases/latest):
 
 ```sh
-sudo pacman -S webkit2gtk-4.1 libsoup3 librsvg virt-viewer base-devel
+chmod +x pve-desk_1.0.0_amd64.AppImage
+sha256sum -c pve-desk_1.0.0_amd64.AppImage.sha256
+./pve-desk_1.0.0_amd64.AppImage
 ```
 
-Debian / Ubuntu:
+Built by CI on Ubuntu 22.04, so it expects glibc 2.35 or newer. I run the app
+from source day to day, so if the AppImage misbehaves on your distro, open an
+issue — that's the build I have the least mileage on.
+
+### Arch / CachyOS
 
 ```sh
+git clone https://github.com/AdamBougher/pve-desk.git
+cd pve-desk/packaging/arch
+makepkg -si
+```
+
+Not on the AUR yet.
+
+## Building from source
+
+Install your distro's dependencies:
+
+```sh
+# Arch / CachyOS
+sudo pacman -S webkit2gtk-4.1 libsoup3 librsvg virt-viewer base-devel
+
+# Debian / Ubuntu
 sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
     build-essential pkg-config virt-viewer
-```
 
-Fedora:
-
-```sh
+# Fedora
 sudo dnf install webkit2gtk4.1-devel libsoup3-devel librsvg2-devel \
     gcc gcc-c++ make pkgconf-pkg-config virt-viewer
 ```
 
-Rust via [rustup](https://rustup.rs) — `rust-toolchain.toml` pins the version,
-so cargo installs the right one on first build. `virt-viewer` is only needed
-for SPICE.
-
-You also need a **Secret Service** keyring running (GNOME Keyring, KWallet,
-or KeePassXC). Without one the password can't be stored and saved logins
-won't work.
-
-Optional, for `cargo tauri build` (packaging):
-
-```sh
-cargo install tauri-cli --version "^2"
-```
-
-### Optional: build in a container
-
-`.devcontainer/` holds a pinned Debian 13 image, useful for one narrow thing:
-checking the build and tests on the distro family the `.deb` target is built
-for, without installing anything on your host.
-
-```sh
-podman build -f .devcontainer/Containerfile -t pve-desk-dev .
-podman run --rm --userns=keep-id -v "$PWD":/workspace \
-    -e CARGO_TARGET_DIR=/tmp/ctarget pve-desk-dev \
-    bash -lc 'cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo test'
-```
-
-VS Code users: *Dev Containers: Reopen in Container*, after setting
-`dev.containers.dockerPath` to `podman`.
-
-It is **not** the main build route and you don't need it:
-
-- **It can't run the app.** Display and session-D-Bus passthrough are written
-  but commented in `.devcontainer/devcontainer.json`; without the D-Bus
-  socket there's no Secret Service, so no keyring and no saved logins.
-- **Build output stays in a container volume**, so container and host builds
-  don't invalidate each other — meaning the binary it produces isn't on your
-  host.
-- CI already covers the same ground on a clean machine, so this is mostly for
-  offline or pre-push checks.
-
-## Run
+Then build and run:
 
 ```sh
 cd src-tauri
 cargo run
 ```
 
-### Rendering workaround
+Rust comes from [rustup](https://rustup.rs); `rust-toolchain.toml` pins the
+version, so cargo fetches the right one on the first build. The frontend is
+plain HTML/CSS/JS with no build step — there is no Node, no bundler and no
+framework to install.
 
-WebKitGTK's dmabuf renderer allocates GBM buffers, which fails on the NVIDIA
-proprietary driver — on Wayland the app dies with
-`Error 71 (Protocol error)` before a window appears, and consoles render
-badly. The app therefore sets `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` by
-default, keeping accelerated compositing but routing buffers through shared
-memory.
-
-Override if your GPU wants something else:
+To build the AppImage yourself:
 
 ```sh
-PVE_DESK_RENDER=legacy cargo run   # disable the dmabuf renderer entirely
-PVE_DESK_RENDER=raw cargo run      # stock WebKit, no workaround
+cargo install tauri-cli --version "^2"
+cd src-tauri && cargo tauri build
 ```
 
-This is Linux-only and has no effect on other platforms.
+## First run
 
-## Platforms
+1. **Add a connection** — host, port (8006), username, realm (`pam` or `pve`),
+   password. The password goes straight to the keyring.
+2. **Confirm the certificate.** If your node uses Proxmox's self-signed
+   default, the app shows you its SHA-256 fingerprint and refuses to continue
+   until you accept it. Check it against the node first:
+   `openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256`.
+   Once accepted, it's pinned in your config.
+3. **Connect.** The admin panel opens signed in. Switch to **Guests** for the
+   VM and container list.
 
-Linux is the only platform verified by hand. Windows is in scope and builds
-in CI (`.github/workflows/ci.yml`) but has never been run; macOS is planned.
-See F17 in `ROADMAP.md`.
+## How your credentials are handled
 
-## Layout
+This is a password-handling app written largely by a language model, so the
+rules it was held to are worth stating plainly:
 
-```
-pve-desk/
-├── CLAUDE.md            working rules + Proxmox API notes
-├── .github/workflows/   CI: fmt, clippy and tests on Linux + Windows
-├── .devcontainer/       pinned build environment (Debian 13 + Rust 1.97.1)
-├── rust-toolchain.toml  toolchain pin, shared by host and container
-├── ROADMAP.md           outstanding work + open questions
-├── DECISIONS.md         why it is built this way, and what failed
-├── .claude/skills/      project skills (Tauri 2 reference, feature workflow)
-├── ui/                  frontend (plain HTML/CSS/JS, no build step)
-│   ├── index.html
-│   ├── main.js
-│   └── style.css
-└── src-tauri/           Rust backend
-    ├── Cargo.toml
-    ├── tauri.conf.json
-    ├── capabilities/    Tauri permission config
-    ├── icons/           icon.svg + generated PNG sizes
-    └── src/
-        ├── main.rs      entry point
-        ├── lib.rs       app setup, shared state, render workaround
-        ├── commands.rs  functions the UI calls + admin panel / cert pinning
-        ├── api.rs       Proxmox API client (login, list, power, spiceproxy)
-        ├── config.rs    ~/.config/pve-desk/config.toml
-        ├── secrets.rs   password in system keyring
-        ├── spice.rs     .vv file + remote-viewer
-        └── error.rs     error type
-```
+- The password goes to the system keyring and into the login request. Never to
+  disk, never to the config file, never to a log line, never into an error
+  message.
+- TLS verification is never disabled. There is no `danger_accept_invalid_certs`
+  anywhere in the codebase, and an unknown certificate aborts the connection
+  rather than being accepted silently.
+- The frontend cannot ask the backend to call arbitrary API paths. Power
+  actions go through an allow-list in the Rust side.
+- Server-provided text (VM names, node names, tags, error strings) is rendered
+  with `textContent`, never `innerHTML`.
+- The admin panel's webview loads a remote site and is given no access to the
+  app's own commands.
+
+If you only read one part of this code before trusting it, read
+`src-tauri/src/api.rs` (the certificate verifier) and
+`src-tauri/src/secrets.rs` (the keyring).
 
 ## Where things are stored
 
-- Settings: `~/.config/pve-desk/config.toml` — host, port, username, realm,
-  pinned certificate fingerprint. **Never the password.**
-- Password: system keyring, service name `pve-desk`, one entry per
-  `user@realm@host`.
+| What                                                        | Where                                                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Settings — host, port, username, realm, pinned fingerprint | `~/.config/pve-desk/config.toml`                                      |
+| Password                                                    | System keyring, service `pve-desk`, one entry per `user@realm@host` |
 
-## Development
+The config file never contains the password.
 
-All three must pass clean before any change is done — on the host from
-`src-tauri/`:
+## Troubleshooting
+
+**The app dies on startup with `Error 71 (Protocol error)`, or consoles render
+badly.** WebKitGTK's dmabuf renderer allocates GBM buffers, which fails on the
+NVIDIA proprietary driver under Wayland. pve-desk therefore sets
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` by default, keeping accelerated
+compositing but routing buffers through shared memory. If your GPU wants
+something else:
+
+```sh
+PVE_DESK_RENDER=legacy pve-desk   # disable the dmabuf renderer entirely
+PVE_DESK_RENDER=raw pve-desk      # stock WebKit, no workaround
+```
+
+Linux-only; no effect elsewhere.
+
+**Saved logins don't stick.** No Secret Service keyring is running, or it's
+locked. There is no password-prompt fallback yet.
+
+**The connection is refused after a certificate renewal.** If your node is on
+a pinned self-signed certificate, renewing it changes the fingerprint; the app
+will show you the new one to confirm.
+
+## Project documentation
+
+The repo carries its working notes, which is unusual enough to explain:
+
+- [ROADMAP.md](ROADMAP.md) — outstanding work only, plus known gaps. A
+  finished feature is deleted from it.
+- [DECISIONS.md](DECISIONS.md) — why it's built this way, and what was tried
+  and failed. Several ideas in there were built, tested and removed.
+- [CLAUDE.md](CLAUDE.md) — the working agreement the AI model operates under,
+  including the credential rules above.
+
+```
+ui/                       frontend (plain HTML/CSS/JS)
+src-tauri/src/commands.rs every function the UI can call
+src-tauri/src/api.rs      Proxmox API client + certificate verifier
+src-tauri/src/config.rs   ~/.config/pve-desk/config.toml
+src-tauri/src/secrets.rs  keyring access
+src-tauri/src/spice.rs    .vv file + remote-viewer
+packaging/                .desktop entry + Arch PKGBUILD
+```
+
+## AI assistance
+
+Most of the code in this repository was written by **Claude Opus 5**, via
+Anthropic's Claude Code, working from my direction. I chose the scope, made the
+architecture calls, reviewed the output, and ran every test against my own
+Proxmox node. The model has never had access to that node or to my
+credentials.
+
+- [CLAUDE.md](CLAUDE.md) is the agreement it works under, including the hard
+  rules in [How your credentials are handled](#how-your-credentials-are-handled).
+- [DECISIONS.md](DECISIONS.md) records what was decided and why, and what was
+  abandoned.
+- `.claude/skills/` holds the project's own workflow and a Tauri 2 reference,
+  so each session works the same way.
+- Commits carry a `Co-Authored-By: Claude Opus 5` trailer where the model
+  wrote the change.
+
+What that should mean to you, if you are not me: read the code before pointing
+it at your own Proxmox server, particularly the parts that touch your password
+and TLS. I'd rather you treat the known-gaps list as the honest boundary of
+what works than take the feature list on faith.
+
+## Contributing
+
+This is a personal project, built for my own homelab, and that shapes what I
+can promise. Bug reports and questions are welcome — if it breaks on your
+setup, I want to know. Pull requests are considered, but I may be slow, and I
+may say no to anything that widens the scope.
+
+If you do send one, these must pass clean from `src-tauri/`:
 
 ```sh
 cargo fmt
@@ -233,56 +290,16 @@ cargo clippy -- -D warnings
 cargo test
 ```
 
-or in the container, if you'd rather not install the dependencies:
-
-```sh
-podman run --rm --userns=keep-id -v "$PWD":/workspace \
-    -e CARGO_TARGET_DIR=/tmp/ctarget pve-desk-dev \
-    bash -lc 'cd src-tauri && cargo fmt --check \
-        && cargo clippy --all-targets -- -D warnings && cargo test'
-```
-
-CI (`.github/workflows/ci.yml`) runs the same checks on `ubuntu-latest` and
-`windows-latest` using the dependency list above — not the container image.
-
-Login, the guest list, the admin panel and SPICE can only be truly verified
-against a real Proxmox node.
-
-Test coverage is thin but no longer confined to one file: 16 unit tests, 13 in
-`config.rs` (schema round-trip, defaults, validation, entry lookup) and 3 in
-`api.rs` (parsing a sample cluster-resources response, tolerating absent
-optional fields, and checking the payload field names the frontend reads).
-`.vv` formatting in `spice.rs` still has none, despite being a pure function
-that should.
-
-## AI assistance
-
-Most of the code in this repository was written by **Claude Opus 5**, via
-Anthropic's Claude Code, working from my direction. I chose the scope, made
-the architecture calls, reviewed the output, and did every test against my
-own Proxmox node — the model has never had access to it, or to my
-credentials.
-
-- `CLAUDE.md` is the working agreement the model operates under, including
-  the hard rules that exist specifically to keep this app from mishandling
-  my credentials: the password goes to the system keyring and the login
-  request and nowhere else, TLS verification is never disabled, and the
-  frontend cannot ask the backend to call arbitrary API paths.
-- `DECISIONS.md` records what was decided and why, and what was tried and
-  abandoned.
-- `.claude/skills/` holds the project's own workflow and a Tauri 2 reference,
-  so the model works the same way each session.
-- Commits carry a `Co-Authored-By: Claude Opus 5` trailer where the model
-  wrote the change — 8 of 17 at the time of writing; the rest are merges and
-  my own early notes.
-
-What this should mean to you, if you are not me: read the code before you
-point it at a Proxmox server, particularly the parts that touch your
-password and TLS. `ROADMAP.md` keeps an explicit "Known gaps" list of what
-is built but unproven, and I would rather you treat that list as the honest
-boundary of what works than trust the "What works" section above on faith.
+CI runs the same checks on Linux and Windows. Note that login, the guest list,
+the admin panel and SPICE can only be truly verified against a live Proxmox
+node — say which parts you actually tested.
 
 ## License
 
 [MIT](LICENSE). Do what you like with it; no warranty, which given the
-"Known gaps" list above you should take literally.
+known-gaps list you should take literally.
+
+---
+
+pve-desk is an unofficial, independent project. It is not affiliated with or
+endorsed by Proxmox Server Solutions GmbH. "Proxmox" is their trademark.

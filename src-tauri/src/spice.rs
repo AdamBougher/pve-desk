@@ -180,7 +180,7 @@ pub async fn launch(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_private, slug, to_vv, vv_name};
+    use super::{slug, to_vv, vv_name};
     use serde_json::json;
 
     fn sample() -> serde_json::Map<String, serde_json::Value> {
@@ -260,6 +260,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn vv_file_is_created_private() {
+        use super::create_private;
         use std::os::unix::fs::PermissionsExt;
 
         let dir = std::env::temp_dir().join(format!("pve-desk-test-{}", std::process::id()));

@@ -5,12 +5,14 @@ use crate::api::{self, Guest, Session};
 use crate::config::{self, Config, HostConfig};
 use crate::error::{Error, Result};
 use crate::{secrets, spice, AppState};
-use tauri::webview::{Cookie, WebviewBuilder};
-use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Url, WebviewUrl};
-// Only the platforms that can position a webview need these (see
-// `layout_admin`): on Linux the GtkBox decides the geometry.
+use tauri::webview::Cookie;
+use tauri::{AppHandle, Emitter, Manager, State, Url, WebviewUrl};
+// The admin panel is a child webview on Linux and its own window everywhere
+// else (see `show_admin`), so the two branches need different builders.
 #[cfg(not(target_os = "linux"))]
-use tauri::{Rect, Window};
+use tauri::WebviewWindowBuilder;
+#[cfg(target_os = "linux")]
+use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize};
 
 /// Label of the admin panel's webview (F14).
 ///
