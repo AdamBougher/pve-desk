@@ -15,17 +15,9 @@ alongside it — one window, no login form, no browser tab.
 
 ## Screenshots
 
-![Main Menu](docs/screenshots/launcher.png)
-
-![Admin panel](docs/screenshots/admin.png)
-
-<!-- Save the two PNGs as docs/screenshots/launcher.png and admin.png, then
-     delete the line above and uncomment this table.
-
 | Launcher | Admin panel |
 | --- | --- |
 | ![The connection launcher](docs/screenshots/launcher.png) | ![The embedded Proxmox web UI](docs/screenshots/admin.png) |
--->
 
 ## Why
 
@@ -38,10 +30,11 @@ Windows and wanted the same experience on Linux, so I built one.
 - **Connection launcher.** The app opens on your saved connections. Each one
   shows whether the node is reachable and whether its session is still valid.
   The reachability check sends no credentials.
-- **Saved logins.** Your password goes to the system keyring. Host, port,
-  username and realm go to a plain config file. Several connections can be
-  saved; one is signed in at a time. Removing one deletes its keyring password
-  with it, after asking.
+- **Saved logins, removable.** Your password goes to the system keyring. Host,
+  port, username and realm go to a plain config file. Several connections can
+  be saved; one is signed in at a time. **Remove** deletes an entry and its
+  keyring password together, after asking — log out first, since the
+  connection you are signed in to is refused.
 - **One window, two tabs.** An **Admin** / **Guests** strip switches between
   the Proxmox web UI and the guest list. Admin is greyed out until you
   connect.
@@ -54,8 +47,11 @@ Windows and wanted the same experience on Linux, so I built one.
   tags — refreshed every 30 seconds, with a search box over name, VMID, node
   and tag. Templates are hidden.
 - **Power actions on each row.** Start a stopped guest, Shutdown or force-Stop
-  a running one; the forced stop asks first. Reboot, and anything beyond these
-  three, stays in the admin panel — the app's allow-list refuses the rest.
+  a running one; only the forced stop asks first, since it is the one that can
+  lose unflushed writes. Buttons follow the guest's status, so there is no
+  Start on something already running. Reboot, and anything beyond those three,
+  stays in the admin panel — the allow-list in the Rust side refuses the rest.
+  Needs `VM.PowerMgmt` on the account.
 - **Certificate verification that survives renewal.** The node must either
   validate against your OS trust store *or* match the SHA-256 fingerprint you
   confirmed when you first set the connection up. So a real certificate
@@ -77,16 +73,6 @@ Honest limits, so you can judge it before installing:
   and hardened (mode 0600, one file per launch, deleted seconds after the
   viewer starts), but `remote-viewer` isn't installed on my machine, so it has
   never actually run. Use the in-panel consoles instead.
-- **Removing a saved connection is new and unproven.** Each launcher row has a
-  Remove button that deletes the entry and its keyring password after a
-  confirmation, and refuses the connection you are signed in to — but it has
-  not been exercised against a real keyring yet. Log out first; there is no
-  "forget this login" shortcut while connected, by decision.
-- **The power buttons are new and have never been fired.** Start, Shutdown and
-  Stop are wired to the API, and the allow-list that gates them has tests, but
-  nothing has yet been started or stopped through them on a real node — the
-  account may not even carry `VM.PowerMgmt`. The admin panel remains the
-  proven route.
 - **Linux only, in practice.** Windows and macOS compile — Windows is built in
   CI — but neither has ever been run, and where the UI can't be shared, Linux
   wins: the tab strip is a GTK widget, so elsewhere the admin panel would be a
@@ -188,7 +174,7 @@ cd src-tauri && cargo tauri build
    `openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256`.
    Once accepted, it's pinned in your config.
 3. **Connect.** The admin panel opens signed in. Switch to **Guests** for the
-   VM and container list.
+   VM and container list, where each row carries its power buttons.
 
 ## How your credentials are handled
 

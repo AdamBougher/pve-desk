@@ -1,10 +1,9 @@
 # pve-desk
 
-Linux desktop client for Proxmox VE. A launcher of saved logins, the embedded
-Proxmox web UI (admin panel) signed in and ready, and a VM/container list with
-start / shutdown / stop on each row. Those power buttons (F6, revived
-2026-10-22) and connection removal (F19) are written but not yet exercised;
-SPICE is written but unproven.
+Linux desktop client for Proxmox VE. A launcher of saved logins (addable and
+removable), the embedded Proxmox web UI (admin panel) signed in and ready, and
+a VM/container list with start / shutdown / stop on each row. SPICE is written
+but unproven.
 
 Three files, each with one job. Read the first two before starting anything:
 
