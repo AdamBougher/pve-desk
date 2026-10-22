@@ -1,12 +1,17 @@
 # pve-desk
 
-Linux desktop client for Proxmox VE. Saved login + auto-login, embedded
-Proxmox web UI (admin panel), VM/container list, power controls, SPICE launch.
+Linux desktop client for Proxmox VE. A launcher of saved logins, the embedded
+Proxmox web UI (admin panel) signed in and ready, and a read-only VM/container
+list. Native power controls were cut; SPICE is written but unproven.
 
-`FEATURES.md` is the source of truth for scope, status and open questions.
-Read it before starting any feature. Finished and cut features move to
-`DONE.md` — check there before re-proposing something, it records decisions
-and several approaches that were tried and failed.
+Three files, each with one job. Read the first two before starting anything:
+
+- `ROADMAP.md` — **outstanding work only**, with each feature's open
+  questions. A finished feature is deleted from it.
+- `DECISIONS.md` — why the app is built this way, and **what was already
+  tried and failed**. Check it before re-proposing something; several ideas
+  in there were built, tested and removed.
+- `README.md` — what the app does today, for someone reading the repo.
 
 ## Context
 
@@ -116,7 +121,7 @@ say whether it was met, partly met, or not met.
 
 ## Architecture questions: ask, don't guess
 
-If a decision isn't already covered by this file or `FEATURES.md`, and it
+If a decision isn't already covered by this file or `DECISIONS.md`, and it
 would be hard to change later, **stop and ask me before implementing it.**
 
 Counts as architecture (always ask):
@@ -137,23 +142,40 @@ How to ask:
 - Give 2–3 concrete options, the trade-offs of each, and which one you'd pick
   and why.
 - Say what you'll do while waiting (usually: nothing on that part).
-- After I answer, record the decision under **Decisions already made** in
-  `FEATURES.md` (one line: the decision + the reason), so it isn't asked again.
+- After I answer, record the decision in `DECISIONS.md` (the decision + the
+  reason), so it isn't asked again.
 
 If you're unsure whether something counts as architecture, ask.
 
 ## How to work on a feature
 
-1. Read the feature's entry in `FEATURES.md`.
+1. Read the feature's entry in `ROADMAP.md`.
 2. Ask its open questions **one at a time**. Wait for each answer before the
    next question. Don't stack questions whose answers depend on each other.
-3. Write the answers back into `FEATURES.md` under that feature.
+3. Write the answers back into the entry in `ROADMAP.md`.
 4. Write the reasoning from "Reason before you code". Ask any architecture
    questions it raises.
 5. Implement it. Keep changes scoped to that feature.
 6. Run fmt / clippy / test.
-7. Update the feature's status (`[ ]` → `[~]` → `[x]`).
+7. Update the feature's status (`[ ]` → `[~]`).
 8. Say what you could NOT verify (anything that needs a live Proxmox node).
+
+### When it's finished
+
+Don't leave a done feature sitting in `ROADMAP.md` with `[x]` beside it.
+Finishing includes retiring the entry, in the same commit as the code:
+
+- **Delete the entry from `ROADMAP.md`.** Anything still open about it — a
+  question you deferred, something unverified — moves to that file's "Open
+  questions from shipped features" or "Known gaps" instead.
+- **Move its decisions to `DECISIONS.md`**: the answers to its questions with
+  the reasoning, and anything you tried that didn't work, with the
+  measurement that killed it. Not a build log — `git log` has that.
+- **Update `README.md`** if the feature changed what the app does.
+
+"Finished" means verified, not compiled. If it can only be exercised against
+a live node you don't have, it stays `[~]` in `ROADMAP.md` and I'll tell you
+when I've confirmed it.
 
 ## Testing reality
 

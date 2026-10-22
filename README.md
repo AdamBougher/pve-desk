@@ -8,7 +8,11 @@ for Windows, and I wanted a similar experience on Linux.
 
 Status: **working for daily use, with caveats.** Connecting, the embedded
 admin panel and its consoles are verified against a real Proxmox node. See
-`FEATURES.md` for the full feature list, decisions and open questions.
+`ROADMAP.md` for what is left, and `DECISIONS.md` for why things are built
+the way they are.
+
+Most of the code here was written by an AI model under my direction — see
+[AI assistance](#ai-assistance) before you run it.
 
 Certificates are verified: a node's certificate must either validate against
 the system trust store or match the fingerprint you confirmed when the
@@ -34,14 +38,15 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
 - **Consoles.** Shell and container/VM consoles work inside the panel.
 - **Guest list.** Read-only summary of VMs and containers, refreshed every
   30s, with a search box over name, VMID, node and tag. Templates are hidden.
+- **Session refresh.** Proxmox tickets last ~2 hours. A session older than
+  ~90 minutes is renewed before the next call, and a ticket the node rejects
+  anyway triggers one silent re-login and a retry. If that also fails, the
+  app returns you to the launcher and says why.
 - **Log out.** Drops the session and returns to the launcher. Saved
   credentials are kept.
 
 ## What isn't done
 
-- **Ticket refresh.** Proxmox tickets last ~2 hours and are not yet renewed,
-  so a long-running session eventually starts failing. Reconnect from the
-  launcher.
 - **SPICE (F7)** is written but has never run — `remote-viewer` isn't
   installed here. The `.vv` file it writes is not yet mode 0600, which it
   must be before this is used.
@@ -49,7 +54,10 @@ connection was first set up. Nothing in the app accepts a certificate blindly.
   keyring entry, which is a decision still open).
 - **Native power controls** were cut: the admin panel already does this
   better. The backend remains if a native UI is ever revisited (F15).
-- **Linux only.** See F17 for what cross-platform would take.
+- **Linux only** by verification. Windows builds in CI but has never been
+  run. See F17.
+
+`ROADMAP.md` keeps a "Known gaps" list of what is built but still unproven.
 
 ## Building
 
@@ -146,16 +154,18 @@ This is Linux-only and has no effect on other platforms.
 
 Linux is the only platform verified by hand. Windows is in scope and builds
 in CI (`.github/workflows/ci.yml`) but has never been run; macOS is planned.
-See F17 in `FEATURES.md`; completed features are in `DONE.md`.
+See F17 in `ROADMAP.md`.
 
 ## Layout
 
 ```
 pve-desk/
 ├── CLAUDE.md            working rules + Proxmox API notes
+├── .github/workflows/   CI: fmt, clippy and tests on Linux + Windows
 ├── .devcontainer/       pinned build environment (Debian 13 + Rust 1.97.1)
 ├── rust-toolchain.toml  toolchain pin, shared by host and container
-├── FEATURES.md          feature list, decisions, open questions
+├── ROADMAP.md           outstanding work + open questions
+├── DECISIONS.md         why it is built this way, and what failed
 ├── .claude/skills/      project skills (Tauri 2 reference, feature workflow)
 ├── ui/                  frontend (plain HTML/CSS/JS, no build step)
 │   ├── index.html
@@ -217,6 +227,34 @@ optional fields, and checking the payload field names the frontend reads).
 `.vv` formatting in `spice.rs` still has none, despite being a pure function
 that should.
 
+## AI assistance
+
+Most of the code in this repository was written by **Claude Opus 5**, via
+Anthropic's Claude Code, working from my direction. I chose the scope, made
+the architecture calls, reviewed the output, and did every test against my
+own Proxmox node — the model has never had access to it, or to my
+credentials.
+
+- `CLAUDE.md` is the working agreement the model operates under, including
+  the hard rules that exist specifically to keep this app from mishandling
+  my credentials: the password goes to the system keyring and the login
+  request and nowhere else, TLS verification is never disabled, and the
+  frontend cannot ask the backend to call arbitrary API paths.
+- `DECISIONS.md` records what was decided and why, and what was tried and
+  abandoned.
+- `.claude/skills/` holds the project's own workflow and a Tauri 2 reference,
+  so the model works the same way each session.
+- Commits carry a `Co-Authored-By: Claude Opus 5` trailer where the model
+  wrote the change — 8 of 17 at the time of writing; the rest are merges and
+  my own early notes.
+
+What this should mean to you, if you are not me: read the code before you
+point it at a Proxmox server, particularly the parts that touch your
+password and TLS. `ROADMAP.md` keeps an explicit "Known gaps" list of what
+is built but unproven, and I would rather you treat that list as the honest
+boundary of what works than trust the "What works" section above on faith.
+
 ## License
 
-TBD.
+[MIT](LICENSE). Do what you like with it; no warranty, which given the
+"Known gaps" list above you should take literally.

@@ -19,7 +19,7 @@
 
   // Tier 2 (F18, Q18.1): running the GUI from inside the container.
   // Not enabled yet — build and test first. To turn on, merge into the
-  // settings above and read the notes in FEATURES.md F18 first:
+  // settings above and read the notes in ROADMAP.md F18 first:
   //
   //   "mounts": [
   //     "source=${localEnv:XDG_RUNTIME_DIR}/wayland-1,target=/run/user/1000/wayland-1,type=bind",

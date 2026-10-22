@@ -2,8 +2,8 @@
 name = "pve-desk"
 version = "0.1.0"
 edition = "2021"
-description = "Desktop client for Proxmox VE (Linux)"
-license = "TBD"
+description = "Desktop client for Proxmox VE"
+license = "MIT"
 
 [lib]
 name = "pve_desk_lib"

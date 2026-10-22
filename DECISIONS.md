@@ -1,0 +1,186 @@
+# pve-desk — decisions and dead ends
+
+Why the app is built the way it is, and what has already been tried and
+failed. **Read this before changing auth, TLS, the admin panel, the refresh
+model or the Linux rendering setup** — several of the ideas below were
+implemented, tested against the real node, and then removed.
+
+Companion files: `ROADMAP.md` is outstanding work, `README.md` is what the app
+does today. Question numbers (Q1.1, Q3.3 …) are kept because source comments
+cite them.
+
+---
+
+## Dead ends — don't re-propose without new evidence
+
+**Installing the cluster CA into this desktop's trust store** (2026-10-21).
+The intended fix for the self-signed certificate. Abandoned: the node's sshd
+refuses password auth for root, so the CA file can't be copied off without
+manual steps through the Proxmox UI. Still the plan on **Windows** (F17),
+where importing a CA is a normal operation.
+
+**A real Tailscale certificate for the node** (2026-10-21). Rejected for now:
+node-side work plus renewal automation. Genuinely the best end state, later.
+
+**A background timer for ticket refresh** (2026-10-21). Rejected in favour of
+refresh-on-demand plus a 401 retry. `Instant` uses `CLOCK_MONOTONIC`, which
+does not advance while the machine is suspended, so a laptop that slept
+through a ticket's lifetime still looks fresh — age alone is not trustworthy.
+The 401 path is ground truth and is needed either way, which left the timer
+earning very little, at the cost of a task whose lifetime has to track
+connect, logout and switching connections.
+
+**Two input-layer fixes for rough console typing** (2026-10-21): a JS shim
+injected into the panel to patch xterm.js's hidden-textarea handling, and
+disabling the webview's GTK input method context. Both chased a `keyCode 229`
+composition theory that was **not** the cause — the problem was *rendering*,
+and vanished when the WebKit rendering path changed. Both are removed. Don't
+re-add them without evidence. The same consoles were always smooth in Firefox
+on this machine, which is the comparison that should have been made first.
+
+**Two GPU workarounds that didn't work** (2026-10-21): pointing WebKit at the
+AMD iGPU with `WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD129` (all
+displays are on the NVIDIA card, so the compositor hands Mesa the NVIDIA
+device and it falls back to software), and
+`WEBKIT_DMABUF_RENDERER_DISABLE_GBM=1` (still crashes).
+
+**Probing an API endpoint for reachability.** pveproxy deliberately delays
+responses to *unauthenticated* `/api2/json/*` requests by ~3s, so the probe
+took 3s instead of milliseconds and logged a failed authentication on the node
+every time. Measured: `GET /api2/json/version` with no cookie = 3.005s / 401;
+`GET /` = 8ms / 200. The probe uses `/`.
+
+---
+
+## Decisions
+
+### Config and storage (2026-10-20)
+- **Q1.1 Multi-host schema from day one.** `config.toml` uses an `[[hosts]]`
+  array, so adding connections needed no format migration — which is exactly
+  what F16 later relied on. App-level settings stay top-level, outside the
+  host entries. Scalars must be written before the array-of-tables, or the
+  TOML is invalid.
+- **Q1.2 Cluster, no failover.** One address is the entry point; any cluster
+  member serves the whole `/cluster/resources` list and proxies consoles.
+  Trying several node addresses at login is a later feature.
+- **Q1.3 Both realms offered, neither preselected.** The realm `<select>`
+  starts on a disabled placeholder and is `required`, so a connection can't be
+  saved without an explicit choice.
+- Entry ids are `user@realm@host` (`HostConfig::id`), so the same account on
+  two nodes never collides. Ids are opaque and never shown.
+
+### Auth and tickets
+- **Q2.1 The keyring works as-is** (probed 2026-10-20). KDE Plasma on
+  Wayland; `org.freedesktop.secrets` is owned by `gnome-keyring-daemon`
+  (`kwalletd6` and `ksecretd` also run but don't own that name). A throwaway
+  secret was written and read back with no unlock prompt. A fallback password
+  prompt is therefore not needed to get connected — it is still worth having
+  for a *locked* keyring, and is not built.
+- **Refresh on demand, retry on 401** (2026-10-21). Before an authenticated
+  call, a session older than ~90 min is renewed; if the node rejects a ticket
+  anyway, the app logs in once more and retries that call. See the rejected
+  timer above.
+- **Q2.2 On total auth failure, return to the launcher with the reason.** The
+  backend drops the session and emits `session-lost`; the UI stops the 30s
+  poll, clears the list and shows why. The original framing (error+retry vs
+  reopen setup) was overtaken by F16 — there is no setup screen any more.
+- **Log out is non-destructive.** The config file and keyring entry are left
+  in place.
+
+### TLS (settled 2026-10-21)
+The node serves a self-signed certificate from its own PVE Cluster Manager
+CA. Final shape: the API client verifies against the OS trust store **or** a
+pinned SHA-256, so a real certificate works and survives renewal while a
+self-signed one is pinned. The admin panel webview pins the same fingerprint
+via `webkit2gtk`'s `allow_tls_certificate_for_host`.
+
+- **Q3.3 An unverified, unpinned certificate blocks the connection** until the
+  fingerprint is confirmed. The handshake is refused before the request body
+  is sent, so the password never reaches an unverified server.
+- `danger_accept_invalid_certs` is gone from the codebase and **must not come
+  back.**
+- Direct dependencies added (`rustls`, `rustls-native-certs`, `sha2`) were
+  already in the tree via reqwest, so nothing new is compiled.
+
+### Admin panel (2026-10-21)
+- **Q4.1 A separate window**, label `admin`, not a tab or iframe. Either
+  layout met the stated goal; the separate window was chosen because no
+  capability names that label, so the hard rule — a remote UI must not reach
+  the app's commands — is visible at a glance rather than argued from origin
+  rules. Proxmox sends no `X-Frame-Options` or CSP, so a tab stays viable
+  (F14).
+- It opens automatically on connect, because it is the view actually used.
+  (Q16.3)
+
+### Guest list (2026-10-21)
+- **Q5.1** Refresh every **30s**, matching cv4pve.
+- **Q5.2** A **search box only**, over name, VMID, node and tags, filtering
+  the list already in hand. No status or tag filters: the list exists to find
+  a guest, and the admin panel covers anything heavier.
+- **Q5.3 Templates are hidden** — dropped at fetch, not at render, so they
+  can't surface through the search either.
+
+### Launcher (2026-10-21)
+- **Q16.1 One live session, map-shaped.** `AppState` holds
+  `HashMap<String, Session>` keyed by config entry id, with `set_only`
+  enforcing a single entry. Allowing several later is a local change.
+- **Q16.2 Status checked on demand**, when the launcher opens and on
+  Re-check. No timers, no background tasks. The reachability probe sends no
+  credentials.
+- **Q16.4 `default` means "last used"** — written on every successful
+  connect, used only to preselect a row. It never auto-connects.
+
+### Linux rendering (revised 2026-10-21)
+`lib.rs` defaults to `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's
+dmabuf renderer and accelerated compositing but routing buffers through shared
+memory instead of GBM. GBM is the part that fails on the NVIDIA proprietary
+driver, where native Wayland dies with "Error 71 (Protocol error)" before any
+window appears. Verified on this machine: clean start on Wayland, renders
+correctly. **This is also what fixed console typing.**
+
+Escape hatches, because the right path is GPU-specific:
+`PVE_DESK_RENDER=legacy` restores `WEBKIT_DISABLE_DMABUF_RENDERER=1`,
+`PVE_DESK_RENDER=raw` sets nothing.
+
+### Project-level
+These are in `CLAUDE.md` under **Decisions already made**, not repeated here:
+the language and UI shell (Rust, Tauri 2 — *not* v1), the no-build-step
+frontend, `reqwest` with rustls rather than OpenSSL, password-in-keyring with
+no SSH keys, FOSS dependencies only, and Linux-primary with Windows in scope.
+
+They live there rather than here because they are constraints that have to be
+in context while code is being written, not history to look up afterwards.
+One source each: a decision is in `CLAUDE.md` or in this file, never both.
+
+---
+
+## Cut and superseded features
+
+**F1. First-run setup** `[-]` Superseded by F16. There is no separate
+first-run screen; the same fields are the launcher's "Add a connection" form,
+open by default when no connections are saved. Input validation lives in
+`HostConfig::validate`.
+
+**F6. Power controls** `[-]` Cut 2026-10-21. The embedded Proxmox UI already
+does start / shutdown / reboot, and that is where the work happens in
+practice, so our own buttons duplicated it without ever being exercised. The
+backend stays and is harmless: `Session::power` and its allow-list are still
+registered, just not driven by any UI. Delete or revive when F15 is decided;
+Q6.1 and Q6.2 are moot until then.
+
+**F8. VNC console** and **F9. LXC terminal** `[-]` Dropped 2026-10-21,
+superseded by F4. The embedded Proxmox UI provides both the noVNC console and
+the container shell, and they work. Only worth revisiting as part of F15.
+
+---
+
+## Environment facts
+
+- The node is reached over the LAN at `192.168.1.2`. Its certificate is
+  self-signed by `PVE Cluster Manager CA`, `CN=home.opah-tuna.ts.net`, valid
+  to **2027-09-08**, SHA-256 beginning `F8:53:5C`. The SAN also covers
+  `home`, `localhost` and the Tailscale name, so a VPN route works without a
+  new certificate.
+- Two nodes in the cluster. Account is `root@pam`.
+- Desktop: KDE Plasma on Wayland, NVIDIA proprietary driver, AMD iGPU present
+  but not driving displays.

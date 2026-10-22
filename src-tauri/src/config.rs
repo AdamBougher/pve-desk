@@ -1,7 +1,7 @@
 //! Non-secret settings, stored at `~/.config/pve-desk/config.toml`.
 //! The password is NOT stored here — see `secrets.rs`.
 //!
-//! Schema (FEATURES.md Q1.1): app-level settings at the top level, then an
+//! Schema (DECISIONS.md Q1.1): app-level settings at the top level, then an
 //! `[[hosts]]` array. v1 writes exactly one entry, named `main`, and shows no
 //! host picker; the array exists so adding a second host later needs no
 //! format migration.
@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Realms offered by the setup form (FEATURES.md Q1.3).
+/// Realms offered by the setup form (DECISIONS.md Q1.3).
 const REALMS: &[&str] = &["pam", "pve"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub struct Config {
 ///
 /// For a cluster this is the entry-point node: any member serves the whole
 /// `/cluster/resources` list and proxies consoles. v1 does not fail over to
-/// other node addresses (FEATURES.md Q1.2).
+/// other node addresses (DECISIONS.md Q1.2).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostConfig {
     pub name: String,
@@ -40,7 +40,7 @@ pub struct HostConfig {
     #[serde(default = "default_port")]
     pub port: u16,
     pub username: String,
-    /// `pam` or `pve` (FEATURES.md Q1.3).
+    /// `pam` or `pve` (DECISIONS.md Q1.3).
     pub realm: String,
     /// SHA-256 fingerprint of the node's TLS cert, pinned on first connect (F3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
