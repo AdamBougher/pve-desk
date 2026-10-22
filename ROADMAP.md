@@ -30,18 +30,30 @@ only when genuinely old, and deletion after a short wait. Six tests in
 `spice.rs`, including one asserting the created file's mode. The launch path
 itself is still unexercised.
 
-Left to do, once Q7.1 says it is worth it: a SPICE button in the guest list
-(only on rows that can use it), and measuring the real read window.
+**Q7.1 answered 2026-10-21: parked until there is a desktop VM.** No guest
+today is a graphical desktop, so SPICE would buy nothing that noVNC in the
+admin panel doesn't already do — but one is planned, so this is deferred,
+not cut. It unblocks the moment such a VM exists.
 
-- Q7.1 **Still open.** Do any guests actually use SPICE (Display = SPICE/qxl),
-  or are they all default VGA / VirtIO-GPU? Check in the admin panel: pick a
-  VM → Hardware → Display. If none use SPICE, launching it is dead code and
-  the UI button should not be built at all. Everything *except* the button is
-  done, because the file handling has to be correct either way.
-- Q7.2 **Not an open question** — answered by reading `config.rs`.
-  `remote_viewer_path` already defaults per-OS (`/usr/bin/remote-viewer` on
-  Linux, `remote-viewer.exe` on Windows) and is overridable in the config
-  file. No decision needed.
+Prerequisites when that happens, in order:
+1. Install `virt-viewer` on the desktop (`remote-viewer` is not present; it
+   is also what makes the launch testable at all).
+2. Set that VM's **Hardware → Display** to `SPICE (qxl)`. Without it the
+   SPICE console cannot connect, whatever the console menu offers.
+3. Add a SPICE button to the guest list, on qualifying rows only.
+4. Measure the real read window and replace the 3s guess in `spice.rs`.
+
+Don't confuse two Proxmox settings when checking this (it cost a round of
+questions): the **Console** dropdown — noVNC / SPICE / xterm.js — is how you
+*view* a guest and always offers all three. Whether SPICE works depends on
+**Hardware → Display**. noVNC works on any display type; xterm.js needs a
+serial port on a VM (containers get it free); only SPICE needs a local
+viewer binary, which is the whole reason F7 exists.
+
+**Q7.2 was never an open question** — answered by reading `config.rs`.
+`remote_viewer_path` already defaults per-OS (`/usr/bin/remote-viewer` on
+Linux, `remote-viewer.exe` on Windows) and is overridable in the config file.
+No decision needed.
 
 ### F14. One window with tabs
 `[ ]` Fold the two windows into one: a slim local tab bar with **Admin** (the
