@@ -1,20 +1,21 @@
 ---
 name: feature
-description: Work one pve-desk feature end to end, following the project's required loop — read its FEATURES.md entry, ask its open questions one at a time, write the answers back, reason before coding, implement, run fmt/clippy/test, flip the status, and state what couldn't be verified. Invoke as /feature F5 (or with the feature name). Use this for any work framed as "do F4", "implement the VM list", "start on power controls".
+description: Work one pve-desk feature end to end, following the project's required loop — read its ROADMAP.md entry, ask its open questions one at a time, write the answers back, reason before coding, implement, run fmt/clippy/test, retire the entry when it is done, and state what couldn't be verified. Invoke as /feature F5 (or with the feature name). Use this for any work framed as "do F4", "implement the VM list", "start on power controls".
 ---
 
 # Work a feature
 
 Argument: a feature id (`F5`) or a description that maps to one. If it maps to
-no entry in `FEATURES.md`, say so and ask — don't invent a feature.
+no entry in `ROADMAP.md`, say so and ask — don't invent a feature.
 
 Work the steps in order. Several of them end in "wait" — honour that; this is a
 one-step-at-a-time project.
 
 ## 1. Read
 
-Read the feature's entry in `FEATURES.md`, plus the **Decisions already made**
-sections of both `FEATURES.md` and `CLAUDE.md`. Read the files the feature
+Read the feature's entry in `ROADMAP.md`, plus `DECISIONS.md` — it records
+what was already tried and failed, and re-proposing one of those is the most
+likely way to waste the session. Read the files the feature
 touches before describing them — `CLAUDE.md` has the module map. Don't assume
 what a function does.
 
@@ -35,7 +36,7 @@ Every feature entry has open questions. They are the user's call, not yours.
 
 ## 3. Write the answers back
 
-Edit the feature's entry in `FEATURES.md`: replace each open question with the
+Edit the feature's entry in `ROADMAP.md`: replace each open question with the
 answer as a decision line. This is what stops the same question being asked
 twice. Do it before writing code, not after.
 
@@ -56,8 +57,7 @@ Tauri permissions or windows, on-disk data formats, background tasks or timers,
 or a choice between two reasonable designs. One question, 2–3 options with
 trade-offs, your pick and why, and what you'll do while waiting.
 
-After the user answers, record it as a one-line decision under **Decisions
-already made** in `FEATURES.md`.
+After the user answers, record it in `DECISIONS.md` with its reason.
 
 ## 5. Implement
 
@@ -99,9 +99,15 @@ fixing unrelated code.
 
 ## 7. Update status and report
 
-- Flip the feature's status in `FEATURES.md`: `[ ]` → `[~]` → `[x]`. `[x]` means
-  done and verified. If it only compiles and can't be exercised without a live
-  Proxmox node, it is `[~]`, not `[x]`.
+- Set the feature's status in `ROADMAP.md`: `[ ]` → `[~]`. If it only compiles
+  and can't be exercised without a live Proxmox node, `[~]` is where it stops
+  until the user confirms it.
+- **Once it is confirmed working, retire the entry in the same commit:**
+  delete it from `ROADMAP.md`, move its decisions and dead ends to
+  `DECISIONS.md`, push anything still open to `ROADMAP.md`'s "Open questions
+  from shipped features" or "Known gaps", and update `README.md` if the app
+  now does something new. `ROADMAP.md` holds outstanding work and nothing
+  else — never a finished entry marked `[x]`.
 - Compare the result against the Goal from step 4 and say: met, partly met, or
   not met.
 - State plainly what you could **not** verify. Login, the guest list, power

@@ -1,5 +1,5 @@
 //! Password storage in the system keyring (Secret Service on Linux:
-//! GNOME Keyring, KWallet, KeePassXC). See FEATURES.md F2 / Q2.1.
+//! GNOME Keyring, KWallet, KeePassXC). See DECISIONS.md Q2.1.
 
 use crate::error::Result;
 

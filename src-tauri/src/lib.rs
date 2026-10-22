@@ -1,6 +1,6 @@
 //! pve-desk: desktop client for Proxmox VE.
 //!
-//! Module map (see FEATURES.md for the feature IDs):
+//! Module map (feature IDs: ROADMAP.md for open work, DECISIONS.md for done):
 //! - `config`   — non-secret settings on disk (F1, F3)
 //! - `secrets`  — password in the system keyring (F1, F2)
 //! - `api`      — Proxmox API client, login ticket, VM list, power (F2, F5, F6)

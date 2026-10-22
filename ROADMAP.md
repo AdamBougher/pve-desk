@@ -1,17 +1,19 @@
-# pve-desk — Feature List
+# pve-desk — Roadmap
 
-Status key: `[ ]` not started · `[~]` in progress / unverified · `[x]` done
-· `[-]` cut or superseded
+**Outstanding work only.** A feature leaves this file the moment it's
+finished: its decisions move to `DECISIONS.md`, what it does goes in
+`README.md`, and the entry here is deleted. If something isn't here, it is
+either done or was cut — check `DECISIONS.md` before proposing it again,
+since several approaches were tried and failed.
+
+Status key: `[ ]` not started · `[~]` in progress / unverified
 
 Each feature has **open questions**. These get answered one at a time before
-the feature is built. Answers get written back into this file.
+the feature is built, and the answers go to `DECISIONS.md`.
 
 ---
 
 ## v1 (current scope)
-
-Completed and cut features live in `DONE.md`, with the decisions
-and dead ends that produced them.
 
 ### F7. SPICE console
 `[~]` `POST /nodes/{node}/qemu/{vmid}/spiceproxy` → write a temporary `.vv`
@@ -62,8 +64,6 @@ Open questions:
   before designing around it.)
 - Q14.2 Store the node's cert PEM in the config next to the fingerprint, or
   fetch it at startup with a handshake?
-
----
 
 ---
 
@@ -276,47 +276,38 @@ Open question for later:
 
 ---
 
-## Decisions already made
-- Language: **Rust**
-- UI shell: **Tauri 2** (WebKitGTK on Linux), plain HTML/CSS/JS frontend,
-  no Node build step
-- Auth: password login, saved in system keyring; **no SSH keys**
-- Sign-in: single factor on my Proxmox account, so the client can fetch a
-  ticket without an interactive prompt
-- License: **TBD** (see README)
-- TLS (settled 2026-10-21, see F3 in `DONE.md`): the node serves a
-  self-signed cert from the PVE Cluster Manager CA. Final shape: the API
-  client verifies against the OS trust store **or** a pinned SHA-256, and the
-  admin panel webview pins the same fingerprint via `webkit2gtk`.
-  `danger_accept_invalid_certs` is gone from the codebase and must not come
-  back.
-  Tried first and abandoned: installing the cluster CA into this desktop's
-  system trust store — the node's sshd refuses password auth for root, so the
-  CA file could not be copied off without manual steps through the Proxmox
-  UI. That route is still the plan on Windows (F17), where importing a CA is
-  a normal operation. Also rejected: giving the node a real Tailscale cert
-  (node-side work plus renewal automation; still the best end state later).
-- Console typing (resolved 2026-10-21): rough, laggy typing in Proxmox
-  consoles was a **rendering** problem, not an input one — it disappeared
-  once the WebKit rendering path changed (see below). The same consoles were
-  always smooth in Firefox on this machine, which is the comparison that
-  should have been made first.
-  Tried and removed as wrong: a JS shim injected into the panel to patch
-  xterm.js's hidden-textarea handling, and disabling the webview's GTK input
-  method context. Both chased a `keyCode 229` composition theory that was not
-  the cause. Don't re-add them without evidence.
-- Linux/NVIDIA rendering (revised 2026-10-21): `lib.rs` now defaults to
-  `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's dmabuf renderer and
-  accelerated compositing but routing buffers through shared memory instead
-  of GBM. GBM is the part that fails on the NVIDIA proprietary driver, where
-  native Wayland dies with "Error 71 (Protocol error)" before any window
-  appears. Verified on this machine: clean start on Wayland, no errors,
-  renders correctly. `PVE_DESK_RENDER=legacy` restores the earlier
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1`; `PVE_DESK_RENDER=raw` sets nothing.
-  Kept as an escape hatch: the right path is GPU-specific. **This change
-  is what fixed console typing.**
-  Tried and rejected: pointing WebKit at the AMD iGPU via
-  `WEBKIT_WEB_RENDER_DEVICE_FILE=/dev/dri/renderD129` (displays are all on the
-  NVIDIA card, so the compositor hands Mesa the NVIDIA device and it falls
-  back to software), and `WEBKIT_DMABUF_RENDERER_DISABLE_GBM=1` (still
-  crashes).
+## Open questions from shipped features
+
+Decided-but-unfinished business, left over from features that are otherwise
+done. Not big enough to be features of their own; too real to lose.
+
+- **Q4.2** Should closing the main window quit the app, or keep it running in
+  the system tray? Open since F4. Overlaps F10.
+- **Q16.5** Should a saved connection be removable from the launcher?
+  Deleting one means deleting its keyring password, which is destructive and
+  needs a decision first.
+- **"Forget this login"** — a real sign-out that clears the config entry and
+  the keyring password, as opposed to today's non-destructive log out. Same
+  decision as Q16.5.
+- **Keyring fallback** — if the keyring is locked or unavailable, fall back to
+  a password prompt. Never built; the keyring has always been available on
+  this machine (see Q2.1), so it has never been exercised.
+
+---
+
+## Known gaps
+
+Things that are built but unproven, so they can't be called working.
+
+- **Windows has never been run.** It builds in CI; that is all. Q17.3 (does
+  the admin panel open already signed in under WebView2, given `set_cookie`
+  is WebKitGTK-verified only) is unanswered.
+- **The real ~90 min ticket refresh** has never fired. Verified only with the
+  threshold temporarily lowered to 10s, where two re-logins fired during an
+  80-second run with no errors.
+- **`session-lost` has never triggered for real** — only the code path exists.
+- **Adding a second connection**, and switching between two, is untested. One
+  entry is all that has ever been in the config.
+- **The `.vv` file is written world-readable and never deleted** (F7). Must be
+  0600 and short-lived before SPICE is ever enabled.
+- **`spice.rs` has no tests**, despite `.vv` formatting being a pure function.

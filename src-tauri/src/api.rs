@@ -327,7 +327,7 @@ impl Session {
     /// F6: start / shutdown / stop / reboot.
     pub async fn power(&self, node: &str, kind: &str, vmid: u32, action: &str) -> Result<()> {
         // Allow-list so the frontend can't hit arbitrary endpoints.
-        // Final list depends on FEATURES.md Q6.1.
+        // Final list depends on DECISIONS.md Q6.1.
         const ALLOWED: &[&str] = &["start", "shutdown", "stop", "reboot"];
         if !ALLOWED.contains(&action) {
             return Err(Error::Api(format!("action not allowed: {action}")));
