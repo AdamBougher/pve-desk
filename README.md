@@ -146,7 +146,7 @@ This is Linux-only and has no effect on other platforms.
 
 Linux is the only platform verified by hand. Windows is in scope and builds
 in CI (`.github/workflows/ci.yml`) but has never been run; macOS is planned.
-See F17 in `FEATURES.md`.
+See F17 in `FEATURES.md`; completed features are in `DONE.md`.
 
 ## Layout
 
