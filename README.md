@@ -234,9 +234,6 @@ the architecture calls, reviewed the output, and did every test against my
 own Proxmox node — the model has never had access to it, or to my
 credentials.
 
-This isn't a disclaimer bolted on at the end; the arrangement is visible
-throughout the repo:
-
 - `CLAUDE.md` is the working agreement the model operates under, including
   the hard rules that exist specifically to keep this app from mishandling
   my credentials: the password goes to the system keyring and the login
@@ -249,15 +246,6 @@ throughout the repo:
 - Commits carry a `Co-Authored-By: Claude Opus 5` trailer where the model
   wrote the change — 8 of 17 at the time of writing; the rest are merges and
   my own early notes.
-
-The model has introduced real bugs, which is the point of reviewing. Two it
-later found in its own earlier work, both described in the commits that fixed
-them: a `#[serde(rename)]` that renamed a field in *both* directions and so
-silently labelled every VM in the list as a container, and a saved-connection
-bug that could mark the wrong entry as the default. One it did not find
-itself: several rounds went into the wrong theory for laggy console typing,
-and it took me saying the consoles were always fine in Firefox before the
-cause turned out to be rendering rather than input.
 
 What this should mean to you, if you are not me: read the code before you
 point it at a Proxmox server, particularly the parts that touch your
