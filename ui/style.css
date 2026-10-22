@@ -6,7 +6,10 @@
 }
 body { margin: 0; padding: 16px; }
 h1 { font-size: 1.3rem; margin: 0 0 12px; }
-header { display: flex; justify-content: space-between; align-items: center; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.controls { display: flex; align-items: center; gap: 6px; }
+#search { padding: 5px 8px; min-width: 180px; }
+.count { font-size: 0.6em; font-weight: normal; opacity: 0.6; vertical-align: middle; }
 form { display: grid; gap: 8px; max-width: 320px; }
 label { display: grid; gap: 2px; }
 table { width: 100%; border-collapse: collapse; margin-top: 8px; }

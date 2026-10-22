@@ -13,21 +13,6 @@ the feature is built. Answers get written back into this file.
 Completed and cut features live in `DONE.md`, with the decisions
 and dead ends that produced them.
 
-### F5. VM / container list
-`[~]` List from `GET /api2/json/cluster/resources?type=vm`.
-
-- Shows: name, VMID, type (VM / LXC), node, status, CPU, RAM
-- Auto-refresh on an interval
-
-Kept 2026-10-21, but as a read-only summary: power buttons are cut (F6).
-Moves into the tabbed window (F14) rather than its own window.
-
-Open questions:
-- Q5.1 Refresh interval? (cv4pve uses 30s, sakakun 60s) — currently 30s.
-- Q5.2 Any filtering you want (by tag, by status, search box), or
-  just a plain list?
-- Q5.3 Show templates, or hide them?
-
 ### F7. SPICE console
 `[~]` `POST /nodes/{node}/qemu/{vmid}/spiceproxy` → write a temporary `.vv`
 file → launch `remote-viewer` with it → delete the file after launch.

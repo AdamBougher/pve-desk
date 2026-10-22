@@ -45,8 +45,9 @@ pub struct Guest {
     pub vmid: u32,
     #[serde(default)]
     pub name: Option<String>,
-    /// `qemu` or `lxc`
-    #[serde(rename = "type")]
+    /// `qemu` or `lxc`. The API calls this `type`; rename on the way in only,
+    /// so the payload the frontend receives keeps the field name it reads.
+    #[serde(rename(deserialize = "type"))]
     pub kind: String,
     pub node: String,
     pub status: String,
@@ -370,5 +371,73 @@ impl Session {
         let resp = check(resp)?;
         let body: ApiResponse<serde_json::Map<String, serde_json::Value>> = resp.json().await?;
         Ok(body.data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ApiResponse, Guest};
+
+    /// A `/cluster/resources?type=vm` response, shaped as the API viewer
+    /// documents it: a running VM, a stopped container, and a template.
+    const SAMPLE: &str = r#"{"data":[
+        {"vmid":100,"name":"web","type":"qemu","node":"pve","status":"running",
+         "cpu":0.0234,"maxcpu":2,"mem":2147483648,"maxmem":4294967296,
+         "tags":"prod;web"},
+        {"vmid":101,"name":"dns","type":"lxc","node":"pve","status":"stopped",
+         "cpu":0,"maxcpu":1,"mem":0,"maxmem":536870912},
+        {"vmid":900,"name":"debian-tmpl","type":"qemu","node":"pve",
+         "status":"stopped","template":1}
+    ]}"#;
+
+    #[test]
+    fn parses_cluster_resources() {
+        let body: ApiResponse<Vec<Guest>> = serde_json::from_str(SAMPLE).unwrap();
+        let guests = body.data;
+        assert_eq!(guests.len(), 3);
+
+        let vm = &guests[0];
+        assert_eq!(vm.vmid, 100);
+        assert_eq!(vm.name.as_deref(), Some("web"));
+        assert_eq!(vm.kind, "qemu");
+        assert_eq!(vm.node, "pve");
+        assert_eq!(vm.status, "running");
+        assert_eq!(vm.maxmem, Some(4294967296));
+        assert_eq!(vm.tags.as_deref(), Some("prod;web"));
+        // Not a template, and the API omits the field rather than sending 0.
+        assert_eq!(vm.template, None);
+
+        assert_eq!(guests[1].kind, "lxc");
+        // Q5.3: this is the row the frontend drops.
+        assert_eq!(guests[2].template, Some(1));
+    }
+
+    /// Fields the API leaves out must not fail the whole list. A node that is
+    /// down reports its guests with almost nothing filled in.
+    #[test]
+    fn tolerates_missing_fields() {
+        let json = r#"{"data":[{"vmid":1,"type":"lxc","node":"pve","status":"unknown"}]}"#;
+        let body: ApiResponse<Vec<Guest>> = serde_json::from_str(json).unwrap();
+        let g = &body.data[0];
+        assert_eq!(g.name, None);
+        assert_eq!(g.cpu, None);
+        assert_eq!(g.mem, None);
+        assert_eq!(g.tags, None);
+    }
+
+    /// The frontend reads `g.kind`, `g.template` and `g.tags` by those names
+    /// (ui/main.js). `type` is an API spelling and must not leak through to
+    /// the UI payload, or every row renders as the wrong guest type.
+    #[test]
+    fn payload_uses_the_names_the_frontend_reads() {
+        let body: ApiResponse<Vec<Guest>> = serde_json::from_str(SAMPLE).unwrap();
+        let out = serde_json::to_value(&body.data[0]).unwrap();
+        assert_eq!(out["kind"], "qemu");
+        assert!(
+            out.get("type").is_none(),
+            "`type` reached the UI payload: {out}"
+        );
+        assert!(out.get("template").is_some());
+        assert!(out.get("tags").is_some());
     }
 }

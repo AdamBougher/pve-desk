@@ -158,6 +158,44 @@ Cert handling: see F3. The CA-trust route was abandoned when it turned out
 the node's sshd refuses password auth for root, so the CA file could not be
 copied off without manual steps.
 
+### F5. VM / container list
+`[x]` List from `GET /api2/json/cluster/resources?type=vm`.
+
+- Shows: name, VMID, type (VM / LXC), node, status, CPU, RAM
+- Search box filters the fetched list as you type; templates hidden
+- Auto-refresh every 30s
+
+Kept 2026-10-21, but as a read-only summary: power buttons are cut (F6).
+Moves into the tabbed window (F14) rather than its own window.
+
+Built 2026-10-21. Two bugs found and fixed on the way:
+- `Guest.kind` carried `#[serde(rename = "type")]`, which renames in **both**
+  directions, so the payload reaching the UI had no `kind` key at all and
+  every row rendered as **LXC**, VMs included. Now
+  `rename(deserialize = "type")`, with a test asserting the payload uses the
+  names `ui/main.js` actually reads.
+- The row builder used `innerHTML` with `g.status` interpolated into it,
+  against the hard rule in `CLAUDE.md`. Rows are now built element by element
+  with `textContent`, and the status CSS class is only applied for the two
+  values that are styled.
+
+`api.rs` now has its first tests (parsing a sample cluster-resources
+response, missing optional fields, payload field names).
+
+Confirmed working by the user 2026-10-21, against their node: the search box,
+the hidden templates and the corrected VM/LXC labels.
+
+Moves into the tabbed window when F14 lands; the list itself needs no further
+work for that, only a new home.
+
+Answered 2026-10-21:
+- Q5.1 Refresh interval: **30s**, matching cv4pve. Unchanged.
+- Q5.2 Filtering: **a search box only**, filtering as you type over name,
+  VMID, node and tags. No status or tag filters — the list is for finding a
+  guest, and the admin panel covers anything heavier.
+- Q5.3 Templates: **hidden**. Rows with `template == 1` are dropped. They are
+  never running and nothing in a read-only list applies to them.
+
 ### F6. Power controls
 `[-]` **Cut from v1 (2026-10-21).** The embedded Proxmox UI already does
 start / shutdown / reboot, and that is where the work happens in practice, so
