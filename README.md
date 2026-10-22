@@ -50,9 +50,12 @@ Windows and wanted the same experience on Linux, so I built one.
   page loads. Opens automatically on connect.
 - **Consoles work.** Node shells and VM/container consoles run inside the
   panel.
-- **Guest list.** A read-only summary of every VM and container — status,
-  node, VMID, tags — refreshed every 30 seconds, with a search box over name,
-  VMID, node and tag. Templates are hidden.
+- **Guest list.** A summary of every VM and container — status, node, VMID,
+  tags — refreshed every 30 seconds, with a search box over name, VMID, node
+  and tag. Templates are hidden.
+- **Power actions on each row.** Start a stopped guest, Shutdown or force-Stop
+  a running one; the forced stop asks first. Reboot, and anything beyond these
+  three, stays in the admin panel — the app's allow-list refuses the rest.
 - **Certificate verification that survives renewal.** The node must either
   validate against your OS trust store *or* match the SHA-256 fingerprint you
   confirmed when you first set the connection up. So a real certificate
@@ -79,8 +82,11 @@ Honest limits, so you can judge it before installing:
   confirmation, and refuses the connection you are signed in to — but it has
   not been exercised against a real keyring yet. Log out first; there is no
   "forget this login" shortcut while connected, by decision.
-- **No native power buttons.** Start/stop/shutdown live in the embedded admin
-  panel, which does it better than I would. The backend code is still there.
+- **The power buttons are new and have never been fired.** Start, Shutdown and
+  Stop are wired to the API, and the allow-list that gates them has tests, but
+  nothing has yet been started or stopped through them on a real node — the
+  account may not even carry `VM.PowerMgmt`. The admin panel remains the
+  proven route.
 - **Linux only, in practice.** Windows and macOS compile — Windows is built in
   CI — but neither has ever been run, and where the UI can't be shared, Linux
   wins: the tab strip is a GTK widget, so elsewhere the admin panel would be a

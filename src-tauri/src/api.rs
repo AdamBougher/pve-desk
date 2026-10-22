@@ -65,6 +65,29 @@ pub struct Guest {
     pub tags: Option<String>,
 }
 
+/// Power actions the frontend is allowed to ask for (DECISIONS.md Q6.1):
+/// start, graceful shutdown, forced stop. `reboot` was dropped with the
+/// buttons — it is shutdown then start, and the admin panel still has it.
+const POWER_ACTIONS: &[&str] = &["start", "shutdown", "stop"];
+
+/// Guard on the two caller-supplied pieces of a power URL.
+///
+/// CLAUDE.md hard rule: the frontend must not be able to drive arbitrary API
+/// calls. `action` and `kind` are interpolated straight into
+/// `/nodes/{node}/{kind}/{vmid}/status/{action}`, so both are matched against
+/// a fixed list rather than sanitised — an exact match cannot carry a path
+/// segment, a traversal or a query string. (`node` comes from the server's
+/// own `/cluster/resources` listing, and `vmid` is a `u32`.)
+fn check_power(kind: &str, action: &str) -> Result<()> {
+    if !POWER_ACTIONS.contains(&action) {
+        return Err(Error::Api(format!("action not allowed: {action}")));
+    }
+    if kind != "qemu" && kind != "lxc" {
+        return Err(Error::Api(format!("unknown guest type: {kind}")));
+    }
+    Ok(())
+}
+
 /// Lowercase hex SHA-256 of a certificate's DER bytes — the same value the
 /// admin panel pins and that `config.cert_fingerprint` stores.
 fn fingerprint(cert: &CertificateDer<'_>) -> String {
@@ -324,17 +347,12 @@ impl Session {
         Ok(body.data)
     }
 
-    /// F6: start / shutdown / stop / reboot.
+    /// F6: start, graceful shutdown, forced stop.
+    ///
+    /// `node`, `kind` and `action` all land in the URL, so `check_power`
+    /// runs before anything is built.
     pub async fn power(&self, node: &str, kind: &str, vmid: u32, action: &str) -> Result<()> {
-        // Allow-list so the frontend can't hit arbitrary endpoints.
-        // Final list depends on DECISIONS.md Q6.1.
-        const ALLOWED: &[&str] = &["start", "shutdown", "stop", "reboot"];
-        if !ALLOWED.contains(&action) {
-            return Err(Error::Api(format!("action not allowed: {action}")));
-        }
-        if kind != "qemu" && kind != "lxc" {
-            return Err(Error::Api(format!("unknown guest type: {kind}")));
-        }
+        check_power(kind, action)?;
         let url = format!(
             "{}/api2/json/nodes/{node}/{kind}/{vmid}/status/{action}",
             self.base_url
@@ -376,7 +394,7 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiResponse, Guest};
+    use super::{check_power, ApiResponse, Guest, POWER_ACTIONS};
 
     /// A `/cluster/resources?type=vm` response, shaped as the API viewer
     /// documents it: a running VM, a stopped container, and a template.
@@ -439,5 +457,44 @@ mod tests {
         );
         assert!(out.get("template").is_some());
         assert!(out.get("tags").is_some());
+    }
+
+    /// F6/Q6.1: exactly three actions, on both guest types.
+    #[test]
+    fn power_allows_the_three_actions_on_both_kinds() {
+        assert_eq!(POWER_ACTIONS, &["start", "shutdown", "stop"]);
+        for kind in ["qemu", "lxc"] {
+            for action in POWER_ACTIONS {
+                assert!(check_power(kind, action).is_ok(), "{kind} {action}");
+            }
+        }
+    }
+
+    /// The hard rule: nothing the frontend sends may reach an endpoint that
+    /// isn't on the list. An exact match is what makes that true — these are
+    /// the shapes a sanitiser would have to get right instead.
+    #[test]
+    fn power_refuses_anything_off_the_list() {
+        for action in [
+            "reboot", // dropped by Q6.1, so no longer accepted
+            "suspend",
+            "resume",
+            "",
+            "START", // matching is exact, not case-folded
+            " start",
+            "start/../../nodes", // path traversal
+            "start?force=1",     // query string
+            "status/start",
+            "../../../access/ticket",
+        ] {
+            assert!(check_power("qemu", action).is_err(), "accepted {action:?}");
+        }
+    }
+
+    #[test]
+    fn power_refuses_an_unknown_guest_type() {
+        for kind in ["", "node", "qemu/", "QEMU", "../qemu"] {
+            assert!(check_power(kind, "start").is_err(), "accepted {kind:?}");
+        }
     }
 }

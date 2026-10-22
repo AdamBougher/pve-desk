@@ -304,7 +304,12 @@ pub async fn list_guests(app: AppHandle, state: State<'_, AppState>) -> Result<V
     }
 }
 
-/// F6
+/// F6: start / shutdown / stop one guest.
+///
+/// `action` is checked against the allow-list in `api::check_power` before a
+/// URL is built, so the three the UI offers (Q6.1) are the three that can
+/// reach the node. The confirmation on a forced stop (Q6.2) is the page's
+/// job; this command does what it is told, as the Proxmox API would.
 #[tauri::command]
 pub async fn power_action(
     app: AppHandle,
