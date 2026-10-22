@@ -256,4 +256,5 @@ boundary of what works than trust the "What works" section above on faith.
 
 ## License
 
-TBD.
+[MIT](LICENSE). Do what you like with it; no warranty, which given the
+"Known gaps" list above you should take literally.
