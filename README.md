@@ -15,7 +15,9 @@ alongside it — one window, no login form, no browser tab.
 
 ## Screenshots
 
-_Coming — see [docs/screenshots/](docs/screenshots/)._
+![Main Menu](docs/screenshots/launcher.png)
+
+![Admin panel](docs/screenshots/admin.png)
 
 <!-- Save the two PNGs as docs/screenshots/launcher.png and admin.png, then
      delete the line above and uncomment this table.
