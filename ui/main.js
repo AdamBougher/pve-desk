@@ -82,7 +82,18 @@ function connectionRow(c) {
   go.title = c.saved_password ? "" : "No password in the keyring for this entry";
   go.addEventListener("click", () => connect(c));
 
-  li.append(label, state, go);
+  // F19: deletion is a launcher job, and only for an entry that isn't the
+  // live session — the backend refuses that too, this is just the label.
+  const remove = document.createElement("button");
+  remove.className = "danger";
+  remove.textContent = "Remove";
+  remove.disabled = c.connected;
+  remove.title = c.connected
+    ? "Log out before removing this connection"
+    : "Delete this saved login and its keyring password";
+  remove.addEventListener("click", () => removeConnection(c));
+
+  li.append(label, state, go, remove);
   if (c.last_used) li.classList.add("last-used");
   return li;
 }
@@ -120,27 +131,54 @@ async function probe(c) {
   }
 }
 
-// F3 Q3.3: ask before trusting a certificate nothing vouches for. Resolves
-// true if the user accepts. The password has not been sent at this point —
-// the TLS handshake was refused before any request body went out.
-function askTrust(fingerprint) {
-  const panel = $("cert-confirm");
-  // Group into pairs so it can be compared against openssl output by eye.
-  $("cert-fingerprint").textContent =
-    fingerprint.toUpperCase().match(/../g).join(":");
+// Show a one-shot confirmation panel; resolves true if the user accepts.
+// Shared by the certificate prompt (F3) and the remove prompt (F19). The
+// listeners are removed with the answer, so reopening the panel doesn't
+// accumulate them.
+function askConfirm(panelId, okId, cancelId) {
+  const panel = $(panelId);
   panel.hidden = false;
   return new Promise((resolve) => {
     const done = (answer) => {
       panel.hidden = true;
-      $("cert-trust").removeEventListener("click", yes);
-      $("cert-cancel").removeEventListener("click", no);
+      $(okId).removeEventListener("click", yes);
+      $(cancelId).removeEventListener("click", no);
       resolve(answer);
     };
     const yes = () => done(true);
     const no = () => done(false);
-    $("cert-trust").addEventListener("click", yes);
-    $("cert-cancel").addEventListener("click", no);
+    $(okId).addEventListener("click", yes);
+    $(cancelId).addEventListener("click", no);
   });
+}
+
+// F3 Q3.3: ask before trusting a certificate nothing vouches for. The
+// password has not been sent at this point — the TLS handshake was refused
+// before any request body went out.
+function askTrust(fingerprint) {
+  // Group into pairs so it can be compared against openssl output by eye.
+  $("cert-fingerprint").textContent =
+    fingerprint.toUpperCase().match(/../g).join(":");
+  return askConfirm("cert-confirm", "cert-trust", "cert-cancel");
+}
+
+// F19: removing a connection deletes its keyring password as well, and
+// nothing in the app can undo it, so it is confirmed first.
+async function removeConnection(c) {
+  $("remove-target").textContent =
+    `${c.username}@${c.realm} on ${c.host}:${c.port}`;
+  if (!(await askConfirm("remove-confirm", "remove-ok", "remove-cancel"))) {
+    status("Cancelled — nothing was removed.");
+    return;
+  }
+  try {
+    await invoke("remove_connection", { name: c.name });
+    status(`Removed ${c.username}@${c.realm} on ${c.host}, keyring password included.`);
+  } catch (err) {
+    status(`Remove failed: ${err}`);
+  }
+  // Either way the list is re-read, so a partial failure shows as it is.
+  showLauncher();
 }
 
 async function connect(c, trust) {

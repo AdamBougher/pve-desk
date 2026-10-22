@@ -33,7 +33,7 @@ td.actions { display: flex; gap: 4px; }
 #connections { list-style: none; padding: 0; }
 .connection {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 0.75rem;
   align-items: center;
   padding: 0.5rem 0;
@@ -44,17 +44,24 @@ td.actions { display: flex; gap: 4px; }
 .connection .state.bad { color: #c66; }
 .connection.last-used strong::after { content: " ·"; opacity: 0.5; }
 
-/* F3: certificate confirmation */
-#cert-confirm {
+/* Confirmations shown before something irreversible: F3 certificate trust,
+   F19 connection removal. */
+#cert-confirm,
+#remove-confirm {
   border: 1px solid #a66;
   padding: 0.75rem 1rem;
   margin: 1rem 0;
 }
-#cert-confirm h2 { margin-top: 0; font-size: 1.1em; }
+#cert-confirm h2,
+#remove-confirm h2 { margin-top: 0; font-size: 1.1em; }
 #cert-fingerprint {
   display: block;
   word-break: break-all;
   padding: 0.5rem 0;
   font-size: 0.95em;
 }
-.cert-actions { display: flex; gap: 0.5rem; }
+.cert-actions,
+.confirm-actions { display: flex; gap: 0.5rem; }
+/* The one button in the launcher that destroys something. */
+button.danger { color: #c66; }
+button.danger:disabled { color: inherit; }

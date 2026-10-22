@@ -16,7 +16,52 @@ the feature is built, and the answers go to `DECISIONS.md`.
 ## v1 (current scope)
 
 **The v1 feature work is done.** Everything that was in scope has shipped and
-been confirmed against a real node; what remains is making it installable.
+been confirmed against a real node; what remains is making it installable,
+plus two gaps from the README picked up on 2026-10-22 (F19, F6).
+
+### F19. Remove a saved connection
+`[~]` A **Remove** button per launcher row: deletes the `[[hosts]]` entry and
+its keyring password, after an in-page confirmation. Answers Q16.5 and the
+"Forget this login" note, both of which were waiting on the same decision.
+
+Asked for 2026-10-22. Written and passing fmt/clippy/test, but **not yet
+clicked**: it needs a GUI run, and nothing about it can be unit-tested past
+`Config::remove_host` without writing to the real keyring.
+
+**Q19.1 answered 2026-10-22: one action, both destroyed.** Config entry and
+keyring password go together. A keyring entry is only reachable through its
+config entry, so keeping one without the other leaves a secret the app can
+neither see nor clean up. Rejected: a separate "forget password" that keeps
+the row (there is no password prompt — see the keyring-fallback gap below — so
+such a row can only sit there with Connect greyed out), and deleting the
+config entry alone (orphaned secrets, and it works against the hard rule about
+handling the password carefully).
+
+**Q19.2 answered 2026-10-22: launcher only, refused while connected.** The
+button is greyed out on the row holding the live session and
+`remove_connection` returns `Error::Connected` regardless of what the page
+asks. The session is keyed by the config entry's id, so deleting that entry
+underneath would leave a session whose refresh and admin panel can no longer
+resolve a host. So: log out, then remove. **This closes "Forget this login" as
+a no** — there is no destructive button next to Log out, and no one-click
+logout-and-delete.
+
+Ordering, decided while implementing: the keyring password is deleted
+**before** the config is rewritten. A keyring that refuses (locked, no Secret
+Service) then leaves everything in place to retry; the reverse order would
+orphan the secret, which is the outcome Q19.1 rejected. A missing keyring
+entry counts as success — the goal is that no password is left, and there
+being none already satisfies it.
+
+Left to verify (needs a GUI run, not a node):
+- Remove a row and confirm it disappears, `config.toml` loses the `[[hosts]]`
+  entry, and the password is gone from the keyring
+  (`secret-tool search service pve-desk`).
+- Cancel leaves everything intact.
+- Removing the last entry leaves a working launcher — `default = ""` is then
+  the config's state, which round-trips in tests but has never been loaded by
+  the running app.
+- The Remove button really is dead on a connected row.
 
 ### F12. Packaging and release
 `[ ]` A `.desktop` entry, an icon, and something installable.
@@ -310,12 +355,6 @@ done. Not big enough to be features of their own; too real to lose.
 
 - **Q4.2** Should closing the main window quit the app, or keep it running in
   the system tray? Open since F4. Overlaps F10.
-- **Q16.5** Should a saved connection be removable from the launcher?
-  Deleting one means deleting its keyring password, which is destructive and
-  needs a decision first.
-- **"Forget this login"** — a real sign-out that clears the config entry and
-  the keyring password, as opposed to today's non-destructive log out. Same
-  decision as Q16.5.
 - **Keyring fallback** — if the keyring is locked or unavailable, fall back to
   a password prompt. Never built; the keyring has always been available on
   this machine (see Q2.1), so it has never been exercised.
