@@ -82,10 +82,44 @@ async function probe(c) {
   }
 }
 
-async function connect(c) {
+// F3 Q3.3: ask before trusting a certificate nothing vouches for. Resolves
+// true if the user accepts. The password has not been sent at this point —
+// the TLS handshake was refused before any request body went out.
+function askTrust(fingerprint) {
+  const panel = $("cert-confirm");
+  // Group into pairs so it can be compared against openssl output by eye.
+  $("cert-fingerprint").textContent =
+    fingerprint.toUpperCase().match(/../g).join(":");
+  panel.hidden = false;
+  return new Promise((resolve) => {
+    const done = (answer) => {
+      panel.hidden = true;
+      $("cert-trust").removeEventListener("click", yes);
+      $("cert-cancel").removeEventListener("click", no);
+      resolve(answer);
+    };
+    const yes = () => done(true);
+    const no = () => done(false);
+    $("cert-trust").addEventListener("click", yes);
+    $("cert-cancel").addEventListener("click", no);
+  });
+}
+
+async function connect(c, trust) {
   status(`Connecting to ${c.host}…`);
   try {
-    await invoke("connect", { name: c.name });
+    const result = await invoke("connect", {
+      name: c.name,
+      trustFingerprint: trust ?? null,
+    });
+    if (result.status === "certificate_unverified") {
+      status("");
+      if (!(await askTrust(result.fingerprint))) {
+        status("Cancelled — nothing was sent to the node.");
+        return;
+      }
+      return connect(c, result.fingerprint);
+    }
     status("");
     startSession();
   } catch (err) {
@@ -95,21 +129,36 @@ async function connect(c) {
 
 $("recheck").addEventListener("click", showLauncher);
 
+async function addConnection(fields, trust) {
+  const result = await invoke("add_connection", { ...fields, trustFingerprint: trust ?? null });
+  if (result.status === "certificate_unverified") {
+    status("");
+    if (!(await askTrust(result.fingerprint))) {
+      status("Cancelled — nothing was saved.");
+      return false;
+    }
+    return addConnection(fields, result.fingerprint);
+  }
+  return true;
+}
+
 $("setup-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
+  const fields = {
+    host: f.get("host"),
+    port: Number(f.get("port")),
+    username: f.get("username"),
+    realm: f.get("realm"),
+    password: f.get("password"),
+  };
   status("Connecting…");
   try {
-    await invoke("add_connection", {
-      host: f.get("host"),
-      port: Number(f.get("port")),
-      username: f.get("username"),
-      realm: f.get("realm"),
-      password: f.get("password"),
-    });
-    e.target.reset();
-    status("");
-    startSession();
+    if (await addConnection(fields)) {
+      e.target.reset();
+      status("");
+      startSession();
+    }
   } catch (err) {
     status(`Login failed: ${err}`);
   }

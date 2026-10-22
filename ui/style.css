@@ -30,3 +30,18 @@ td.actions { display: flex; gap: 4px; }
 .connection .state.ok { color: #6c6; }
 .connection .state.bad { color: #c66; }
 .connection.last-used strong::after { content: " ·"; opacity: 0.5; }
+
+/* F3: certificate confirmation */
+#cert-confirm {
+  border: 1px solid #a66;
+  padding: 0.75rem 1rem;
+  margin: 1rem 0;
+}
+#cert-confirm h2 { margin-top: 0; font-size: 1.1em; }
+#cert-fingerprint {
+  display: block;
+  word-break: break-all;
+  padding: 0.5rem 0;
+  font-size: 0.95em;
+}
+.cert-actions { display: flex; gap: 0.5rem; }

@@ -25,6 +25,11 @@ dirs = "6"
 # webview would trust the node while this client refused it.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
 tokio = { version = "1", features = ["time"] }
+# Certificate verification for the API client (F3). All three are already in
+# the dependency tree via reqwest, so declaring them direct adds no new code.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rustls-native-certs = "0.8"
+sha2 = "0.10"
 
 # Per-platform keyring backend. `secrets.rs` is identical on all three; only
 # the backend feature changes (F17).

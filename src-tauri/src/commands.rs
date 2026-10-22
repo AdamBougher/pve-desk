@@ -97,22 +97,59 @@ pub async fn probe_connection(
     })
 }
 
+/// What a connect attempt produced (F3, Q3.3).
+///
+/// A refused certificate is an outcome, not an error: the UI shows the
+/// fingerprint and asks, then retries with `trust_fingerprint` set.
+#[derive(serde::Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ConnectOutcome {
+    Connected,
+    CertificateUnverified { fingerprint: String },
+}
+
 /// F16: connect to a saved entry using its keyring password.
+///
+/// `trust_fingerprint` is set only when the user has just confirmed a
+/// certificate in the UI; it is pinned to the entry once the login succeeds.
 #[tauri::command]
-pub async fn connect(state: State<'_, AppState>, name: String) -> Result<()> {
+pub async fn connect(
+    state: State<'_, AppState>,
+    name: String,
+    trust_fingerprint: Option<String>,
+) -> Result<ConnectOutcome> {
     let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
     let host = cfg.host(&name)?.clone();
     let password = secrets::get_password(&host.userid(), &host.host)?;
-    let session = api::login(&host, &password).await?;
+
+    let session = match api::login(&host, &password, trust_fingerprint.as_deref()).await {
+        Ok(session) => session,
+        Err(Error::CertUnverified(fingerprint)) => {
+            return Ok(ConnectOutcome::CertificateUnverified { fingerprint });
+        }
+        Err(e) => return Err(e),
+    };
     state.set_only(name.clone(), session);
 
+    // Persist what the user just confirmed, so later connects verify against
+    // it instead of asking again.
+    let mut dirty = false;
+    if let Some(fp) = trust_fingerprint {
+        if let Some(entry) = cfg.hosts.iter_mut().find(|h| h.name == name) {
+            entry.cert_fingerprint = Some(fp);
+            dirty = true;
+        }
+    }
     // Remember which entry to preselect next time (Q16.4).
     if cfg.default != name {
         cfg.default = name;
+        dirty = true;
+    }
+    if dirty {
         config::save(&cfg)?;
     }
     // TODO(F2): spawn a background task that re-logs-in every ~90 min.
-    Ok(())
+    Ok(ConnectOutcome::Connected)
 }
 
 /// F1/F16: test the login, then save the entry and its password.
@@ -124,7 +161,8 @@ pub async fn add_connection(
     username: String,
     realm: String,
     password: String,
-) -> Result<()> {
+    trust_fingerprint: Option<String>,
+) -> Result<ConnectOutcome> {
     let host = host.trim().to_string();
     let username = username.trim().to_string();
     let realm = realm.trim().to_string();
@@ -134,12 +172,20 @@ pub async fn add_connection(
         port,
         username,
         realm,
-        cert_fingerprint: None, // TODO(F3): capture + confirm on first connect
+        // Pinned below, once the login proves the certificate was accepted.
+        cert_fingerprint: trust_fingerprint.clone(),
     };
     entry.validate()?;
 
-    // Only save if the login actually works.
-    let session = api::login(&entry, &password).await?;
+    // Only save if the login actually works. A refused certificate saves
+    // nothing at all — not the entry, not the password.
+    let session = match api::login(&entry, &password, trust_fingerprint.as_deref()).await {
+        Ok(session) => session,
+        Err(Error::CertUnverified(fingerprint)) => {
+            return Ok(ConnectOutcome::CertificateUnverified { fingerprint });
+        }
+        Err(e) => return Err(e),
+    };
     secrets::set_password(&entry.userid(), &entry.host, &password)?;
 
     // Re-running setup keeps app-level settings (e.g. remote_viewer_path).
@@ -153,7 +199,7 @@ pub async fn add_connection(
     config::save(&cfg)?;
 
     state.set_only(name, session);
-    Ok(())
+    Ok(ConnectOutcome::Connected)
 }
 
 /// F5

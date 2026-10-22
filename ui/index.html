@@ -16,6 +16,22 @@
     <ul id="connections"></ul>
     <p id="no-connections" hidden>No saved connections yet.</p>
 
+    <!-- F3 Q3.3: shown before any password is sent -->
+    <div id="cert-confirm" hidden>
+      <h2>Unverified certificate</h2>
+      <p>
+        This node presented a certificate that no trusted authority vouches
+        for. Check the fingerprint matches your node before continuing — you
+        can see it on the node with
+        <code>openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256</code>.
+      </p>
+      <code id="cert-fingerprint"></code>
+      <div class="cert-actions">
+        <button id="cert-trust">Trust and connect</button>
+        <button id="cert-cancel">Cancel</button>
+      </div>
+    </div>
+
     <details id="add-connection">
       <summary>Add a connection</summary>
       <form id="setup-form">

@@ -8,7 +8,12 @@
 
 use crate::config::HostConfig;
 use crate::error::{Error, Result};
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// A logged-in session.
@@ -59,15 +64,148 @@ pub struct Guest {
     pub tags: Option<String>,
 }
 
-/// Build the HTTP client.
+/// Lowercase hex SHA-256 of a certificate's DER bytes — the same value the
+/// admin panel pins and that `config.cert_fingerprint` stores.
+fn fingerprint(cert: &CertificateDer<'_>) -> String {
+    let digest = Sha256::digest(cert.as_ref());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// What the verifier saw during a handshake.
 ///
-/// TODO(F3): replace `danger_accept_invalid_certs` with a custom rustls
-/// verifier that checks the pinned SHA-256 fingerprint from `Config`.
-/// Until then this skeleton accepts any cert — do NOT use outside your LAN.
-fn http_client(_host: &HostConfig) -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .build()?)
+/// Recorded even when verification fails, so a rejected connection can tell
+/// the user *which* certificate was offered without handshaking again.
+#[derive(Debug, Default)]
+struct Sighting {
+    fingerprint: Option<String>,
+    accepted: bool,
+}
+
+/// Accepts a server certificate if it verifies normally against the OS trust
+/// store, **or** if its SHA-256 matches the fingerprint pinned for this host
+/// (F3, Q3.3).
+///
+/// The standard path means a real certificate — a Tailscale or Let's Encrypt
+/// one, or a CA imported into the system store — works without pinning and
+/// survives renewal. The pinned path covers Proxmox's default self-signed
+/// certificate, which no CA vouches for.
+#[derive(Debug)]
+struct PinnedVerifier {
+    inner: Arc<dyn ServerCertVerifier>,
+    pinned: Option<String>,
+    seen: Arc<Mutex<Sighting>>,
+}
+
+impl ServerCertVerifier for PinnedVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        let seen = fingerprint(end_entity);
+        let standard = self.inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        );
+
+        let accepted = standard.is_ok()
+            || self
+                .pinned
+                .as_deref()
+                .is_some_and(|p| p.eq_ignore_ascii_case(&seen));
+
+        if let Ok(mut record) = self.seen.lock() {
+            record.fingerprint = Some(seen);
+            record.accepted = accepted;
+        }
+
+        match standard {
+            Ok(ok) => Ok(ok),
+            // Pin matched: trust it despite no CA vouching for it.
+            Err(_) if accepted => Ok(ServerCertVerified::assertion()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
+/// Build an HTTP client that verifies the node's certificate.
+///
+/// `pinned` is the fingerprint to accept in addition to anything the OS trust
+/// store already vouches for. Returns the shared sighting so the caller can
+/// report the offered certificate when the handshake is refused.
+fn http_client(
+    pinned: Option<String>,
+    timeout: Option<std::time::Duration>,
+) -> Result<(reqwest::Client, Arc<Mutex<Sighting>>)> {
+    let mut roots = rustls::RootCertStore::empty();
+    let loaded = rustls_native_certs::load_native_certs();
+    for cert in loaded.certs {
+        let _ = roots.add(cert);
+    }
+
+    let inner = rustls::client::WebPkiServerVerifier::builder(Arc::new(roots))
+        .build()
+        .map_err(|e| Error::Api(format!("could not build TLS verifier: {e}")))?;
+
+    let seen = Arc::new(Mutex::new(Sighting::default()));
+    let verifier = Arc::new(PinnedVerifier {
+        inner,
+        pinned,
+        seen: Arc::clone(&seen),
+    });
+
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|e| Error::Api(format!("TLS configuration: {e}")))?
+    .dangerous()
+    .with_custom_certificate_verifier(verifier)
+    .with_no_client_auth();
+
+    let mut builder = reqwest::Client::builder().use_preconfigured_tls(tls);
+    if let Some(t) = timeout {
+        builder = builder.timeout(t);
+    }
+    Ok((builder.build()?, seen))
+}
+
+/// Turn a transport failure into a certificate error when the handshake was
+/// refused over the certificate specifically.
+fn cert_rejection(seen: &Arc<Mutex<Sighting>>) -> Option<Error> {
+    let record = seen.lock().ok()?;
+    match (&record.fingerprint, record.accepted) {
+        (Some(fp), false) => Some(Error::CertUnverified(fp.clone())),
+        _ => None,
+    }
 }
 
 /// F16: can the node be reached at all? Sends no credentials.
@@ -78,26 +216,39 @@ fn http_client(_host: &HostConfig) -> Result<reqwest::Client> {
 /// on the node every time. Measured: `/` answers in ~8ms,
 /// `/api2/json/version` without a cookie takes 3.005s.
 pub async fn reachable(host: &HostConfig) -> bool {
-    let Ok(http) = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-    else {
+    let Ok((http, seen)) = http_client(
+        host.cert_fingerprint.clone(),
+        Some(std::time::Duration::from_secs(5)),
+    ) else {
         return false;
     };
     let url = format!("{}/", host.base_url());
-    http.get(&url).send().await.is_ok()
+    if http.get(&url).send().await.is_ok() {
+        return true;
+    }
+    // A certificate we refused still means something answered on that port.
+    seen.lock()
+        .map(|s| s.fingerprint.is_some())
+        .unwrap_or(false)
 }
 
 /// Log in with username + password and return a session.
-pub async fn login(host: &HostConfig, password: &str) -> Result<Session> {
-    let http = http_client(host)?;
+/// `trust` is a fingerprint the user has just confirmed, accepted in addition
+/// to the one already pinned in the config (F3, Q3.3). The password is only
+/// sent once the TLS handshake succeeds, so a refused certificate never sees
+/// it.
+pub async fn login(host: &HostConfig, password: &str, trust: Option<&str>) -> Result<Session> {
+    let pinned = trust
+        .map(str::to_string)
+        .or_else(|| host.cert_fingerprint.clone());
+    let (http, seen) = http_client(pinned, None)?;
     let url = format!("{}/api2/json/access/ticket", host.base_url());
     let resp = http
         .post(&url)
         .form(&[("username", host.userid().as_str()), ("password", password)])
         .send()
-        .await?;
+        .await
+        .map_err(|e| cert_rejection(&seen).unwrap_or(Error::Http(e)))?;
 
     if !resp.status().is_success() {
         return Err(Error::Api(format!("login failed: HTTP {}", resp.status())));
