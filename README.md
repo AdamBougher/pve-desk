@@ -81,8 +81,9 @@ Honest limits, so you can judge it before installing:
   (only tested with the threshold lowered to seconds) and running two saved
   connections side by side.
 
-[ROADMAP.md](ROADMAP.md) keeps the full "Known gaps" list; treat it as the
-boundary of what works.
+[ROADMAP.md](ROADMAP.md) carries the rest as Gherkin scenarios — including a
+"Shipped but unproven" block of acceptance criteria nobody has run yet. Treat
+that as the boundary of what works.
 
 ## Requirements
 
@@ -234,8 +235,9 @@ will show you the new one to confirm.
 
 The repo carries its working notes, which is unusual enough to explain:
 
-- [ROADMAP.md](ROADMAP.md) — outstanding work only, plus known gaps. A
-  finished feature is deleted from it.
+- [ROADMAP.md](ROADMAP.md) — outstanding work only, written as Gherkin
+  features and scenarios across three passes (v1, v2, v3), plus the
+  scenarios that have never been run. A finished feature is deleted from it.
 - [DECISIONS.md](DECISIONS.md) — why it's built this way, and what was tried
   and failed. Several ideas in there were built, tested and removed.
 - [CLAUDE.md](CLAUDE.md) — the working agreement the AI model operates under,

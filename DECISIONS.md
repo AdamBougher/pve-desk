@@ -316,6 +316,19 @@ The AppImage is built on **ubuntu-22.04**, not `ubuntu-latest`: an AppImage
 is only as portable as the glibc it was linked against, and building on
 24.04 would make it unrunnable on anything older.
 
+Written 2026-10-21, none of it executed (`tauri-cli` is not installed here):
+`bundle.targets` is AppImage only, with publisher/homepage/license and a
+description for the generated launcher entry; `packaging/arch/PKGBUILD`
+builds from the release tarball with `cargo build --release`, runs the tests
+and installs the binary, the `.desktop` entry, three icon sizes and the
+licence; `packaging/pve-desk.desktop`; and
+`.github/workflows/release.yml`, which on a `v*` tag builds on ubuntu-22.04
+and uploads the AppImage plus a `.sha256` to a **draft** release.
+
+Pushing `release.yml` needs a token with the **`workflow` scope**. The HTTPS
+remote's token did not have it and SSH was used instead — not a code problem,
+but it stops a `git push` of that file dead.
+
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it
 be private and short-lived.
@@ -342,6 +355,121 @@ be private and short-lived.
   `console-{pid}.vv`, one fixed path per app run, so a second console
   overwrote the first's file while the viewer might still be reading it. Now
   keyed on node and VMID.
+
+### SPICE: what actually gates it (F7, 2026-10-21)
+**Q7.1 Parked until there is a graphical desktop VM**, not cut. No guest here
+is a desktop, so SPICE would buy nothing that noVNC in the admin panel does
+not already do; one is planned, so this is deferred. It unblocks the moment
+such a VM exists.
+
+**Don't confuse two Proxmox settings** — this cost a round of questions. The
+**Console** dropdown (noVNC / SPICE / xterm.js) is how you *view* a guest and
+always offers all three. Whether SPICE works depends on **Hardware →
+Display**. noVNC works on any display type; xterm.js needs a serial port on a
+VM (containers get one free); only SPICE needs a local viewer binary, which
+is the entire reason F7 exists.
+
+**Q7.2 was never an open question** — answered by reading `config.rs`.
+`remote_viewer_path` already defaults per-OS (`/usr/bin/remote-viewer` on
+Linux, `remote-viewer.exe` on Windows) and is overridable in the config file.
+
+Prerequisites, in order, when a desktop VM exists: install `virt-viewer`
+(which is also what makes the launch testable at all); set that VM's
+Hardware → Display to `SPICE (qxl)`; add the button for qualifying rows only;
+then measure the real read window and replace the 3s guess in `spice.rs`.
+
+### Cross-platform findings (F17, 2026-10-21)
+Verified by reading the vendored sources, not assumed:
+
+- **`set_cookie` exists on all four wry backends** (webkitgtk, wkwebview,
+  webview2, android). The admin panel's "opens already signed in" trick is
+  portable as-is — the feature most at risk, and it is fine.
+- The keyring crate has `windows-native` and `apple-native` features, so
+  `secrets.rs` is unchanged; only the `Cargo.toml` feature table moves.
+  `Cargo.toml` currently pins `sync-secret-service` (Linux only).
+- Tauri hands out a *typed* `ICoreWebView2Controller` on Windows, but only
+  `*mut c_void` for WKWebView on macOS.
+- **wry has no server-certificate handling on any platform.** The Linux
+  pinning reaches past wry into `webkit2gtk` directly; there is no
+  cross-platform seam to extend, so each platform would be bespoke.
+- **`reqwest` is configured with `rustls-tls`, which uses `webpki-roots`**
+  (compiled-in Mozilla roots), not the OS trust store. So on Windows/macOS,
+  importing the Proxmox CA would make the *webview* trust the node while the
+  *API client* still refused it. The CA-install escape hatch only solves half
+  the problem on any platform.
+
+Decisions: **Q17.1 Windows first, macOS later** — there is a Windows laptop
+to test on, which is what makes it worth doing. **Q17.2 Native roots plus a
+CA import, not per-platform pinning**: `reqwest` switches from `webpki-roots`
+to `rustls-tls-native-roots` so the API client reads the OS trust store, and
+importing the cluster CA then satisfies both halves. Linux keeps its existing
+in-app pinning, which already works and needed no CA install.
+
+Mechanical when it happens: per-target keyring features; a per-OS
+`remote-viewer` default; `cfg(unix)` on the `.vv` permission work (Windows
+has no mode bits and would need ACLs or a per-user temp dir); `cfg`-gate the
+NVIDIA render workaround; `msi`/`nsis` and `dmg` bundle targets with `.ico`
+and `.icns` from `src-tauri/icons/icon.svg`.
+
+**The real constraint is testing, not code.** Every interesting failure found
+on 2026-10-21 — NVIDIA DMABUF, console rendering, pveproxy's 3s delay — only
+showed up on real hardware. A Windows build nobody can run is a build nobody
+can call working. Everything except pinning is about half a day of config and
+build plumbing; pinning on all three platforms is days, most of it interop
+that cannot be verified without the hardware.
+
+### Dev container (F18, 2026-10-21)
+Tier 1 (build and test, no GUI) built and verified the same day: `cargo fmt
+--check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` all run
+clean inside the image. Clippy compiling the `webkit2gtk` crate there proved
+Debian's webkit carries the `v2_40` features the certificate pinning needs —
+the main risk in this feature, retired.
+
+- **Q18.1 Tier 1 now, Tier 2 staged.** The display / D-Bus / `/dev/dri`
+  wiring is written but commented out in `devcontainer.json`.
+- **Q18.2 Debian 13 (trixie).** Matches the bundle target *and* ships
+  webkit2gtk-4.1 **2.54.0** against the host's 2.54.1 — measured, not
+  assumed. Arch was not needed.
+- **Q18.3 `.devcontainer/` plus a plain Containerfile.** Works with VS Code
+  Dev Containers (set `dev.containers.dockerPath` to `podman`) and the same
+  Containerfile is reusable for CI unchanged.
+- **Q18.4 Local for now, CI-ready.** No CI config added.
+- Not Debian's `rustc` (1.85.1, far behind this project's 1.97.1): Rust comes
+  from rustup and `rust-toolchain.toml` pins 1.97.1 for host and container
+  alike, so they cannot drift. `libssl-dev` is deliberately absent — this
+  project uses rustls and must not acquire an OpenSSL dependency.
+
+**Demoted the same day it was built**, so this isn't re-litigated: CI on
+`ubuntu-latest` already does the container's main job (a clean Debian-family
+machine installing the documented dependency list from scratch on every
+push); the container cannot run the app, and this is a GUI client — every bug
+found on 2026-10-21 needed the GUI on real hardware; `rust-toolchain.toml`
+pins the compiler either way; and it does nothing for anyone *installing*
+pve-desk. Kept because it works, costs a few files, and is useful for offline
+or pre-push checks against Debian. The README does **not** claim CI uses this
+image; CI installs deps with apt directly.
+
+**Honest caveat:** GPU and keyring behaviour *inside* a container differs
+from the host, so a green container run is not evidence the app works on a
+real desktop. Keep verifying on the host.
+
+### The roadmap is Gherkin (2026-10-22)
+`ROADMAP.md` is written as Gherkin feature files: tags for the pass and
+status, a `Feature:` block per outstanding feature, `Scenario:` blocks as its
+acceptance criteria, and `#` comments for its open questions. Asked for by
+the user; chosen in the "pure Gherkin, prose trimmed hard" form, which is why
+the measurements that used to pad that file are in the sections above.
+
+- **Scenarios are the spec, not a suite.** There is no `cucumber-rs` in the
+  tree. Most scenarios need a live node or a GUI, which is exactly what
+  cannot be automated here; the pure parts are already unit-tested in
+  `src-tauri/src/*.rs`. Whether to wire them up is an open question in the
+  roadmap, not a decision.
+- **A feature leaves the file when its scenarios pass by hand.** Same rule as
+  before: decisions here, behaviour in `README.md`, entry deleted.
+- **Version passes replaced the old "v1 / Later" split**: v1 is the shipped
+  app plus packaging, v2 is performance and the Home view, v3 is Home as a
+  first-pass replacement for Admin (logs, shell, options).
 
 ### Linux rendering (revised 2026-10-21)
 `lib.rs` defaults to `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's
