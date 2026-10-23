@@ -1,6 +1,6 @@
 # Maintainer: Adam Bougher <adamsauce99@gmail.com>
 pkgname=pve-desk
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Desktop client for Proxmox VE"
 arch=('x86_64')

@@ -110,9 +110,9 @@ On your desktop:
 Grab it from the [latest release](https://github.com/AdamBougher/pve-desk/releases/latest):
 
 ```sh
-chmod +x pve-desk_1.0.0_amd64.AppImage
-sha256sum -c pve-desk_1.0.0_amd64.AppImage.sha256
-./pve-desk_1.0.0_amd64.AppImage
+chmod +x pve-desk_1.0.1_amd64.AppImage
+sha256sum -c pve-desk_1.0.1_amd64.AppImage.sha256
+./pve-desk_1.0.1_amd64.AppImage
 ```
 
 Built by CI on Ubuntu 22.04, so it expects glibc 2.35 or newer. I run the app
