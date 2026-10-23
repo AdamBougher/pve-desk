@@ -37,6 +37,24 @@ a replacement for Admin: a guest's logs, its shell, and its options.
 
 ## v1 — what's left
 
+Two features, F12 and F20, seven scenarios between them:
+
+- **Green (2).** The two `.desktop` files agree on the window class; the
+  rasters are regenerated from the SVG.
+- **Waiting on one look at a dock (2).** F12's "the taskbar shows the app's
+  icon" and F20's "every part of the mark is visible". Same look settles
+  both, and it needs only a local install — not the release. In progress:
+  the dock entry integrated from the v1.0 AppImage was still showing the
+  pre-fix icon on 2026-10-23, so its 256px raster was replaced by hand with
+  the current one to make the look testable.
+- **Waiting on the release (4).** The AppImage starting, `sha256sum -c`,
+  `makepkg -si`, and the stale-entry question (Q12.2) all describe an
+  artifact that does not exist yet.
+
+So **v1 cannot be fully green before the release; the release is what makes
+those three runnable.** Pushing `v1.0.1` is a step *in* F12, not something
+that waits on it.
+
 ```gherkin
 @v1 @wip
 Feature: Packaging and release (F12)
@@ -52,27 +70,36 @@ Feature: Packaging and release (F12)
   # twice by dispatch. v1.0 is published with its AppImage and .sha256.
   # Releases are tagged with three components from v1.0.1 on, so the
   # PKGBUILD's v$pkgver always resolves.
-  # Do F20 first — packaging is what puts the icon in a dock, where half of it
-  # being invisible will show.
+  # F20 is done and no longer gates this: the icon is fixed in the tree and
+  # ships in whatever this builds.
+  # ORDERING, and it is circular: three scenarios below — the AppImage
+  # running, sha256sum -c, and makepkg — are about a release artifact that
+  # does not exist yet. They cannot go green before the v1.0.1 tag is
+  # pushed; the tag is what makes them runnable. The two window-class
+  # scenarios are the only ones closable beforehand.
 
   Scenario: The AppImage runs on a machine that never had Rust
     Given a v* tag built by .github/workflows/release.yml on ubuntu-22.04
     When I chmod +x the AppImage and run it on a glibc 2.35 or newer system
     Then the launcher window appears
     And the release it came from was a draft until I wrote its notes
-    # Built and published for v1.0; never downloaded by anyone (the asset's
-    # download count is 0), so nobody has seen it start. Needs a second
-    # machine — this one has Rust and glibc 2.44.
+    # Blocked on the v1.0.1 tag, then on a second machine — this one has
+    # Rust and glibc 2.44. The v1.0 asset was downloaded and extracted here
+    # on 2026-10-23 but never seen to start: run from its AppDir it died on
+    # a relative path to WebKitNetworkProcess, and run whole it produced no
+    # X11 window to find. Inconclusive, not a failure.
 
   Scenario: sha256sum -c succeeds on the file as downloaded
     Given the .sha256 published beside the AppImage
     When I run sha256sum -c on it in the directory I downloaded to
     Then it reports OK
-    # Fails for v1.0: that asset was built before 97a1fcc and records the
-    # build path src-tauri/target/release/bundle/appimage/..., so the check
-    # README tells people to run cannot find the file. The hash itself
-    # matches GitHub's digest. release.yml fixes this but has not run on a
-    # tag since, which is what v1.0.1 is for.
+    # Reproduced against the published v1.0 asset on 2026-10-23:
+    #   sha256sum: src-tauri/target/release/bundle/appimage/
+    #   pve-desk_1.0.0_amd64.AppImage: No such file or directory
+    # It was built before 97a1fcc and records the build path, so the command
+    # README.md:114 gives cannot find the file. The hash itself matches
+    # GitHub's digest — the binary is sound, the filename is not. 97a1fcc
+    # fixes it but has never run on a tag; v1.0.1 is that run.
 
   Scenario: The desktop entry groups the window under its own icon
     Given packaging/pve-desk.desktop declares StartupWMClass=pve-desk
@@ -89,10 +116,28 @@ Feature: Packaging and release (F12)
     When I read StartupWMClass from each
     Then they name the same string
     # Passes as of 2026-10-23: both name pve-desk, which is the class the
-    # app actually reports. Read from a locally generated AppDir entry, not
-    # a published AppImage — re-check once a tag has built one.
-    # Unmeasured, and what a taskbar on this Wayland desktop actually keys
-    # on: the xdg-shell app_id. StartupWMClass is only the X11 fallback.
+    # app actually reports. The AppImage side was read by extracting the
+    # published v1.0 asset, so it is the shipped entry, not a local guess;
+    # it derives from productName, which has not changed.
+    # Still unmeasured: what a taskbar on a Wayland desktop keys on is the
+    # xdg-shell app_id, and StartupWMClass is only the X11 fallback — so
+    # both files agreeing does not by itself prove the dock groups it.
+
+  Scenario: Installing a new AppImage does not leave the old one in the dock
+    Given a desktop entry integrated from a previous AppImage
+    When I integrate the AppImage from the next release
+    Then the dock shows one pve-desk entry, not one per version
+    # Found 2026-10-23 and unsolved. AppImage desktop integration names both
+    # files after the versioned filename — ~/.local/share/applications/
+    # pve-desk_1.0.0_amd64.desktop and icons/.../pve-desk_1.0.0_amd64.png —
+    # so v1.0.1 will add a second entry beside the first rather than replace
+    # it, and the stale one keeps the old icon and an Exec pointing at an
+    # AppImage that may be gone. The Arch package does not have this problem:
+    # it installs unversioned pve-desk.desktop and pve-desk.png.
+    # Q12.2 Is this ours to fix at all? It is appimaged/the integration
+    #   prompt doing the naming, not our bundle. Options: document the
+    #   stale-entry cleanup in README, or ship nothing and let AppImage
+    #   users live with it.
 
   Scenario: The Arch package builds from the release tarball
     Given packaging/arch/PKGBUILD
@@ -130,13 +175,22 @@ Feature: An app icon that survives a dark theme (F20)
     And on a light desktop the orange carries the mark
     # Checked by compositing 128x128.png over #1c1c1c, #2e3436 and #ffffff:
     # both halves show on the two dark grounds, and #f2f2f2 goes faint on
-    # white — the trade-off the fill was chosen with. Not yet seen in a real
-    # dock or tray, which needs F12 to install it.
+    # white — the trade-off the fill was chosen with.
+    # All that is left is one look at a real dock. That does NOT need the
+    # release: copying packaging/pve-desk.desktop and the three icon files
+    # into ~/.local/share is enough to see it, and it is the same look that
+    # settles F12's "the taskbar shows the app's icon rather than a
+    # generic one". A tray needs F10, which is @later — out of v1's scope.
 
   Scenario: The raster icons are regenerated from the source
     When icon.svg changes
     Then tauri icon is re-run
     And the PNGs and the .ico under src-tauri/icons are rebuilt from it
+    # Passes: `cargo tauri icon` was re-run from the SVG on 2026-10-23 and
+    # all five tracked rasters changed (commit 4dc4205). It was generated
+    # into a temp dir and copied back selectively, so the .icns, the Windows
+    # Store logos and the Android/iOS sets it also emits stayed out of a
+    # tree that never carried them.
 ```
 
 ---
