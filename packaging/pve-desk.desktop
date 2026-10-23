@@ -8,6 +8,7 @@ Icon=pve-desk
 Terminal=false
 Categories=Utility;System;Network;
 Keywords=proxmox;pve;virtualization;vm;
-# Lets the taskbar match the window to this entry. tao sets the GTK
-# application id from the bundle identifier.
-StartupWMClass=dev.pvedesk.app
+# Lets the taskbar match the window to this entry. Measured, not assumed:
+# xprop -name pve-desk WM_CLASS reports "pve-desk", "Pve-desk" (2026-10-23).
+# GTK takes the class from the program name, not the bundle identifier.
+StartupWMClass=pve-desk

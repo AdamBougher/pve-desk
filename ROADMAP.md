@@ -38,7 +38,7 @@ a replacement for Admin: a guest's logs, its shell, and its options.
 ## v1 — what's left
 
 ```gherkin
-@v1 @todo @blocked
+@v1 @wip
 Feature: Packaging and release (F12)
   As someone who does not build from source
   I want one file to download and run
@@ -47,7 +47,11 @@ Feature: Packaging and release (F12)
   # AppImage plus an Arch PKGBUILD, released on GitHub as drafts; what is
   # already written, and the `workflow`-scope token needed to push it, are in
   # "Release format" and "Releases on GitHub" in DECISIONS.md.
-  # Blocked: tauri-cli is not installed here, so none of it has been run.
+  # No longer blocked: tauri-cli 2.12.4, makepkg and xprop are all installed
+  # here, and release.yml has run green three times — once on the v1.0 tag,
+  # twice by dispatch. v1.0 is published with its AppImage and .sha256.
+  # Releases are tagged with three components from v1.0.1 on, so the
+  # PKGBUILD's v$pkgver always resolves.
   # Do F20 first — packaging is what puts the icon in a dock, where half of it
   # being invisible will show.
 
@@ -55,46 +59,79 @@ Feature: Packaging and release (F12)
     Given a v* tag built by .github/workflows/release.yml on ubuntu-22.04
     When I chmod +x the AppImage and run it on a glibc 2.35 or newer system
     Then the launcher window appears
-    And the published .sha256 matches the file I downloaded
     And the release it came from was a draft until I wrote its notes
+    # Built and published for v1.0; never downloaded by anyone (the asset's
+    # download count is 0), so nobody has seen it start. Needs a second
+    # machine — this one has Rust and glibc 2.44.
 
-  Scenario: jammy still ships the webkit package the build needs
-    When the workflow installs libwebkit2gtk-4.1-dev on ubuntu-22.04
-    Then the package resolves
-    # If it ever stops resolving, the fallback is ubuntu-24.04 and a less
-    # portable AppImage: an AppImage is only as portable as its glibc.
+  Scenario: sha256sum -c succeeds on the file as downloaded
+    Given the .sha256 published beside the AppImage
+    When I run sha256sum -c on it in the directory I downloaded to
+    Then it reports OK
+    # Fails for v1.0: that asset was built before 97a1fcc and records the
+    # build path src-tauri/target/release/bundle/appimage/..., so the check
+    # README tells people to run cannot find the file. The hash itself
+    # matches GitHub's digest. release.yml fixes this but has not run on a
+    # tag since, which is what v1.0.1 is for.
 
   Scenario: The desktop entry groups the window under its own icon
-    Given packaging/pve-desk.desktop declares StartupWMClass=dev.pvedesk.app
+    Given packaging/pve-desk.desktop declares StartupWMClass=pve-desk
     When the app is running and I read xprop WM_CLASS on its window
     Then the two strings match
     And the taskbar shows the app's icon rather than a generic one
+    # The strings match as of 2026-10-23: xprop -name pve-desk WM_CLASS
+    # reports "pve-desk", "Pve-desk" (Q12.1 settled, see DECISIONS.md). The
+    # taskbar half is still unrun — it needs an X11 taskbar, and this
+    # machine has no X11 session installed, only XWayland.
+
+  Scenario: The AppImage and the Arch package agree on the window class
+    Given the AppImage ships a .desktop Tauri generates, not packaging/'s
+    When I read StartupWMClass from each
+    Then they name the same string
+    # Passes as of 2026-10-23: both name pve-desk, which is the class the
+    # app actually reports. Read from a locally generated AppDir entry, not
+    # a published AppImage — re-check once a tag has built one.
+    # Unmeasured, and what a taskbar on this Wayland desktop actually keys
+    # on: the xdg-shell app_id. StartupWMClass is only the X11 fallback.
 
   Scenario: The Arch package builds from the release tarball
     Given packaging/arch/PKGBUILD
     When I run makepkg -si
-    Then cargo build --release runs and the tests pass
+    Then the source tarball downloads
+    And cargo build --release runs and the tests pass
     And the binary, the .desktop entry, three icon sizes and the licence install
+    # Failed at the download under v1.0: pkgver=1.0.0 asked for
+    # v1.0.0.tar.gz, a 404, because the only tag was v1.0 — which extracts to
+    # pve-desk-1.0 while the PKGBUILD cds into pve-desk-1.0.0. pkgver is 1.0.1
+    # now; it resolves as soon as the v1.0.1 tag is pushed, not before.
 ```
 
 ```gherkin
-@v1 @todo
+@v1 @unverified
 Feature: An app icon that survives a dark theme (F20)
   As someone with a dark panel and a dark tray
   I want the whole icon to be visible
   So that pve-desk is findable in a dock
 
-  # In src-tauri/icons/icon.svg the X carries fill:#e57000, but the top and
-  # bottom chevrons carry no fill at all and default to black — against a
-  # dark background only the orange X shows.
-  # Q20.1 An explicit light fill on the chevrons, or a contrasting
-  #   backplate behind the whole mark? Blocks nothing, but F12 (packaging)
-  #   and F10 (tray) both ship this file.
+  # Was: in src-tauri/icons/icon.svg the X carried fill:#e57000 while the top
+  # and bottom chevrons carried no fill at all and defaulted to black, so on
+  # a dark background only the orange X showed. Fixed — they are #f2f2f2 now
+  # and the five tracked rasters were regenerated with `cargo tauri icon`.
+  # Decided: an explicit light fill on the chevrons, not a backplate. One
+  #   attribute, the mark keeps its shape and its transparent background,
+  #   and a transparent glyph sits better in a tray than a plate does. The
+  #   cost is accepted: on a light desktop the chevrons go faint and the
+  #   orange X carries the mark. F12 (packaging) and F10 (tray) ship this file.
 
   Scenario: Every part of the mark is visible on a dark background
     Given src-tauri/icons/icon.svg
-    When the icon is drawn on a dark panel, a dark tray and a light desktop
-    Then no path is invisible against any of them
+    When the icon is drawn on a dark panel or a dark tray
+    Then both the orange chevrons and the pale ones read clearly
+    And on a light desktop the orange carries the mark
+    # Checked by compositing 128x128.png over #1c1c1c, #2e3436 and #ffffff:
+    # both halves show on the two dark grounds, and #f2f2f2 goes faint on
+    # white — the trade-off the fill was chosen with. Not yet seen in a real
+    # dock or tray, which needs F12 to install it.
 
   Scenario: The raster icons are regenerated from the source
     When icon.svg changes
