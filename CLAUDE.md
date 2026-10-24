@@ -212,6 +212,8 @@ feature is untested — don't call it working. Unit-test the pure parts
 
 ## Communication
 
+- Reply in ASD-STE100 Simplified Technical English, using `GLOSSARY.md`'s
+  vocabulary.
 - Work step by step. When a task has several steps that need input or depend
   on the previous result, do one, report, then continue.
 - No praise or flattery. State facts. If I'm wrong, say so directly.
