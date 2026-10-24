@@ -62,7 +62,7 @@ fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     let _ = app.emit("session-lost", why.to_string());
 }
 
-/// The connected session together with the config entry it belongs to,
+/// The connected session together with the connection it belongs to,
 /// refreshed if stale.
 async fn current_host(state: &State<'_, AppState>) -> Result<(HostConfig, Session)> {
     let (name, session) = fresh_session(state).await?;
@@ -80,13 +80,13 @@ pub struct Connection {
     pub realm: String,
     /// A password for this entry exists in the keyring.
     pub saved_password: bool,
-    /// This entry is the live session.
+    /// This connection is the live session.
     pub connected: bool,
     /// Used most recently; the launcher preselects it.
     pub last_used: bool,
 }
 
-/// Result of probing one entry (F16, Q16.2).
+/// Result of probing one connection (F16, Q16.2).
 #[derive(serde::Serialize)]
 pub struct ConnectionStatus {
     /// The node answered on host:port. No credentials were sent.
@@ -117,7 +117,7 @@ pub fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connection>> {
         .collect())
 }
 
-/// F16: check one entry. Called per row so the launcher fills in as results
+/// F16: check one connection. Called per row so the launcher fills in as results
 /// arrive instead of waiting on the slowest node.
 #[tauri::command]
 pub async fn probe_connection(
@@ -154,7 +154,7 @@ pub enum ConnectOutcome {
 /// F16: connect to a saved entry using its keyring password.
 ///
 /// `trust_fingerprint` is set only when the user has just confirmed a
-/// certificate in the UI; it is pinned to the entry once the login succeeds.
+/// certificate in the UI; it is pinned to the connection once the login succeeds.
 #[tauri::command]
 pub async fn connect(
     app: AppHandle,
@@ -185,7 +185,7 @@ pub async fn connect(
             dirty = true;
         }
     }
-    // Remember which entry to preselect next time (Q16.4).
+    // Remember which connection is the default next time (Q16.4).
     if cfg.default != name {
         cfg.default = name;
         dirty = true;
@@ -211,7 +211,7 @@ pub struct NewConnection {
     pub password: String,
 }
 
-/// F1/F16: test the login, then save the entry and its password.
+/// F1/F16: test the login, then save the connection and its password.
 #[tauri::command]
 pub async fn add_connection(
     app: AppHandle,
@@ -264,15 +264,15 @@ pub async fn add_connection(
 /// password, which is all this app ever stored for it. Nothing on the node is
 /// touched.
 ///
-/// Refused for the entry that holds the live session: the session is keyed by
-/// that entry's id, so deleting it underneath would leave a session whose
+/// Refused for the connection that holds the live session: the session is keyed
+/// by that connection's id, so deleting it underneath would leave a session whose
 /// refresh and admin panel can no longer resolve a host. Log out first. The
 /// launcher greys the button out too; this is the half that cannot be
 /// bypassed from the page.
 ///
 /// **Password first, config second.** A keyring that refuses (locked, no
 /// Secret Service) then leaves everything in place to retry, rather than
-/// deleting the config entry that is the only way back to the secret.
+/// deleting the connection that is the only way back to the secret.
 #[tauri::command]
 pub fn remove_connection(state: State<'_, AppState>, name: String) -> Result<()> {
     if state.is_connected(&name) {
@@ -723,7 +723,7 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
                 .hosts
                 .iter_mut()
                 .find(|h| h.name == entry)
-                .ok_or_else(|| Error::Config(format!("no host entry named {entry:?}")))?;
+                .ok_or_else(|| Error::Config(format!("no connection named {entry:?}")))?;
             target.cert_fingerprint = Some(seen.to_string());
             config::save(&cfg)?;
             Ok(Pinned::Stored)

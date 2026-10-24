@@ -15,11 +15,9 @@ one decision record, both at the repo root.
   binding: language, UI shell, auth model, HTTP stack, target platform. Its
   *Hard rules* section is binding on anything touching the password, TLS,
   power actions, server-supplied text, or Tauri capabilities.
-- **`GLOSSARY.md`** at the repo root, if it exists.
-
-If `GLOSSARY.md` doesn't exist, **proceed silently**. Don't flag its absence;
-don't suggest creating it upfront. `/domain-modeling` creates it lazily when
-terms actually get resolved.
+- **`GLOSSARY.md`** at the repo root. It exists, it is short, and it is
+  binding on the words you write. Each entry gives the term to use and an
+  `_Avoid_` line of words not to use for that concept.
 
 ## File structure
 
@@ -27,7 +25,7 @@ terms actually get resolved.
 /
 ├── CLAUDE.md        ← binding decisions + hard rules
 ├── DECISIONS.md     ← the decision record (ADRs, as prose sections)
-├── GLOSSARY.md      ← created lazily by /domain-modeling
+├── GLOSSARY.md      ← the agreed term for each concept
 ├── README.md        ← what the app does today
 ├── src-tauri/src/   ← Rust backend
 └── ui/              ← frontend (plain HTML/CSS/JS)
@@ -46,15 +44,19 @@ When your output names a domain concept (in an issue title, a refactor
 proposal, a hypothesis, a test name), use the term as defined in
 `GLOSSARY.md`. Don't drift to synonyms the glossary explicitly avoids.
 
-Terms this repo is already precise about, glossary or not: a **guest** is a
-VM or a container; a **node** is the Proxmox host; a **ticket** is the
-Proxmox auth cookie, never a work item (work items are **issues**, and a
-feature is an **F-number**); **Home** is the local native view and **Admin**
-is the embedded Proxmox web UI.
+Read `GLOSSARY.md` for the terms themselves; don't keep a second copy of
+them here. Two places that list the same words will drift, which is the
+problem the glossary exists to solve.
 
-If the concept you need isn't recorded anywhere, that's a signal: either
-you're inventing language the project doesn't use (reconsider) or there's a
-real gap (note it for `/domain-modeling`).
+The traps that bite most often: **ticket** is the Proxmox credential and
+never a unit of work (work items are **issues**, and a feature is an
+**F-number**); **entry** is not a connection, and the word is already taken
+by desktop entries and keyring entries; **kind** is only the Rust spelling of
+**Type**, because `type` is a reserved word.
+
+If the concept you need isn't in the glossary, that's a signal: either you're
+inventing language the project doesn't use (reconsider) or there's a real gap
+(note it for `/domain-modeling`).
 
 ## Flag conflicts with the record
 

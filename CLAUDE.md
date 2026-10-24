@@ -1,9 +1,13 @@
 # pve-desk
 
-Linux desktop client for Proxmox VE. A launcher of saved logins (addable and
-removable), the embedded Proxmox web UI (admin panel) signed in and ready, and
-a VM/container list with start / shutdown / stop on each row. SPICE is written
-but unproven.
+Linux desktop client for Proxmox VE. A launcher of saved connections (addable
+and removable), Admin — the embedded Proxmox web UI — signed in and ready, and
+a guest list with start / shutdown / stop on each row. SPICE is written but
+unproven.
+
+The words this project is opinionated about are in `GLOSSARY.md`. Use them:
+a **guest** is a VM or a container, a **connection** is a saved login, a
+**ticket** is the Proxmox credential and never a work item.
 
 Where things live, each with one job. Read the issue and `DECISIONS.md`
 before starting anything:
@@ -20,6 +24,7 @@ before starting anything:
   tried and failed**. Check it before re-proposing something; several ideas
   in there were built, tested and removed.
 - `README.md` — what the app does today, for someone reading the repo.
+- `GLOSSARY.md` — the agreed term for each concept, and the words to avoid.
 
 ## Context
 

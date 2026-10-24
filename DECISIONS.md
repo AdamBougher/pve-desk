@@ -7,8 +7,9 @@ implemented, tested against the real node, and then removed.
 
 Companion files: outstanding work is the
 [GitHub issues](https://github.com/AdamBougher/pve-desk/issues) with
-`ROADMAP.md` as their map, and `README.md` is what the app does today. Question numbers (Q1.1, Q3.3 …) are kept because source comments
-cite them.
+`ROADMAP.md` as their map, `GLOSSARY.md` is the agreed word for each concept,
+and `README.md` is what the app does today. Question numbers (Q1.1, Q3.3 …)
+are kept because source comments cite them.
 
 ---
 
@@ -641,6 +642,51 @@ for them to read.
 - **The scenarios are still not a suite.** The move changed where they live,
   not what they are. Nothing executes them; "done" still means someone ran
   them against the real node by hand.
+
+### The vocabulary is fixed, and the on-disk names are not (2026-10-24)
+Agreed in a `/grill-with-docs` session the same day as the issue migration.
+`GLOSSARY.md` is the output: 13 terms, each with the words to avoid. It holds
+words only — this section holds the decisions behind them.
+
+- **Connection** is a saved login: name, address, port, username, realm,
+  pinned fingerprint. It is a stored record; a **Session** is the live
+  authenticated link, and a **Node** is the Proxmox machine. **Host** is only
+  the address field inside a Connection and never the record itself.
+- **The on-disk names stay wrong on purpose.** `Config.hosts`,
+  `HostConfig` and `default` keep their names even though the agreed terms
+  are Connection and Default Connection. Renaming them changes the
+  `config.toml` schema, which breaks every existing config and needs a
+  migration, and buys no behaviour. Expect the mismatch; it is not drift to
+  tidy up. `error.rs` already showed the user "this connection is signed in",
+  so the user-facing word was never in doubt.
+- **`kind` is a spelling, not a term.** The domain word is **Type**
+  (`qemu` or `lxc`) — what the table column says, what the Proxmox API field
+  is called, and what F34 is named after. The Rust field is `kind` only
+  because `type` is a reserved word. Do not "correct" the UI label or the
+  issue title to match the Rust field.
+- **Never sweep the word "entry".** It has four unrelated and correct senses
+  in this tree: the `keyring` crate's own `entry()` function in `secrets.rs`,
+  `std::fs` directory entries in `spice.rs`, the "desktop entry" of
+  packaging, and the cluster's "entry-point node" in `config.rs`. Only about
+  24 doc comments ever meant a Connection, and those are already fixed. A
+  find-and-replace here corrupts working code and user-facing packaging prose.
+- **Guest is the union** — a VM (`qemu`) or a Container (`lxc`). "VM" alone
+  never means both. A **Template** is a Guest that cannot be started: the
+  domain includes it, and Home hides it. The filter stays in
+  `ui/main.js` (Q5.3) rather than `api.rs`, so the backend keeps telling the
+  truth about what `/cluster/resources` returns and F26's filters keep the
+  option of showing them.
+- **Home is a planned name.** It appears nowhere in the code; the tab still
+  reads "Guests" until F21 (#10). Five issues are written in terms of it, so
+  it is in the glossary now, marked as planned.
+- **Ticket is never a unit of work.** It is the Proxmox credential a Session
+  holds. The collision only became live when outstanding work moved into
+  GitHub issues — work items are **issues**, and a feature is an
+  **F-number**.
+- **What was deliberately not done:** no identifier or test renames. The
+  sweep was prose only, so `fn remove_errors_on_an_unknown_entry` still
+  carries the old word and still passes. Renaming identifiers is a separate
+  job nobody has asked for.
 
 ### Linux rendering (revised 2026-10-21)
 `lib.rs` defaults to `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's

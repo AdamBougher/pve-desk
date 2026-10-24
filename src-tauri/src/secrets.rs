@@ -25,7 +25,7 @@ pub fn get_password(userid: &str, host: &str) -> Result<String> {
 /// A missing entry counts as success: the caller wants no password for this
 /// connection left in the keyring, and there being none already satisfies
 /// that. Every other keyring failure — a locked collection, no Secret
-/// Service — is reported, so removal can stop with the config entry intact
+/// Service — is reported, so removal can stop with the connection intact
 /// instead of orphaning a secret the app can no longer reach.
 pub fn delete_password(userid: &str, host: &str) -> Result<()> {
     match entry(userid, host)?.delete_credential() {

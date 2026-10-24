@@ -2,7 +2,7 @@
 //! The password is NOT stored here — see `secrets.rs`.
 //!
 //! Schema (DECISIONS.md Q1.1): app-level settings at the top level, then an
-//! `[[hosts]]` array. v1 writes exactly one entry, named `main`, and shows no
+//! `[[hosts]]` array. v1 writes exactly one connection, named `main`, and shows no
 //! host picker; the array exists so adding a second host later needs no
 //! format migration.
 //!
@@ -18,7 +18,8 @@ const REALMS: &[&str] = &["pam", "pve"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// Entry used most recently; the launcher preselects it (F16, Q16.4).
+    /// The default connection: used most recently, so the launcher preselects
+    /// it (F16, Q16.4).
     /// Not an auto-connect: startup always shows the launcher.
     pub default: String,
     /// Local `remote-viewer` binary (F7). App-level, not per host.
@@ -77,15 +78,16 @@ impl Config {
         }
     }
 
-    /// Look up one entry by its id.
+    /// Look up one connection by its id.
     pub fn host(&self, name: &str) -> Result<&HostConfig> {
         self.hosts
             .iter()
             .find(|h| h.name == name)
-            .ok_or_else(|| Error::Config(format!("no host entry named {name:?}")))
+            .ok_or_else(|| Error::Config(format!("no connection named {name:?}")))
     }
 
-    /// Replace the entry with the same name, or add it, and make it current.
+    /// Replace the connection with the same name, or add it, and make it the
+    /// default.
     /// Used when setup is re-run so app-level settings survive.
     pub fn upsert_host(&mut self, host: HostConfig) {
         self.default = host.name.clone();
@@ -98,7 +100,7 @@ impl Config {
     /// Delete one entry, returning it so the caller can reach its keyring
     /// password (F19).
     ///
-    /// `default` is repointed at a remaining entry, or cleared when none is
+    /// `default` is repointed at a remaining connection, or cleared when none is
     /// left, so it never names something that is gone. An empty `default`
     /// simply means no row is preselected (Q16.4).
     pub fn remove_host(&mut self, name: &str) -> Result<HostConfig> {
@@ -106,7 +108,7 @@ impl Config {
             .hosts
             .iter()
             .position(|h| h.name == name)
-            .ok_or_else(|| Error::Config(format!("no host entry named {name:?}")))?;
+            .ok_or_else(|| Error::Config(format!("no connection named {name:?}")))?;
         let removed = self.hosts.remove(at);
         if self.default == removed.name {
             self.default = self
@@ -120,7 +122,7 @@ impl Config {
 }
 
 impl HostConfig {
-    /// Stable id for an entry: unique per user+realm+host, so the same
+    /// Stable id for a connection: unique per user+realm+host, so the same
     /// account on two nodes (or two accounts on one node) never collide.
     /// Never shown in the UI, which displays the fields themselves.
     pub fn id(username: &str, realm: &str, host: &str) -> String {
@@ -196,7 +198,7 @@ fn render(cfg: &Config) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// Deliberately the legacy name: entries written before `HostConfig::id`
+    /// Deliberately the legacy name: connections written before `HostConfig::id`
     /// existed must still load and resolve.
     fn host() -> HostConfig {
         HostConfig {
@@ -296,7 +298,7 @@ mod tests {
         assert_eq!(cfg.remote_viewer_path, "/opt/bin/remote-viewer");
     }
 
-    /// Regression: replacing an entry must not point `default` at a different
+    /// Regression: replacing a connection must not point `default` at a different
     /// host just because the replaced one isn't last in the array.
     #[test]
     fn upsert_sets_default_to_the_upserted_entry() {
@@ -327,7 +329,7 @@ mod tests {
         assert_eq!(cfg.host(&cfg.default).unwrap().host, "10.0.0.5");
     }
 
-    /// F19: removal hands back the entry, because the caller needs its
+    /// F19: removal hands back the connection, because the caller needs its
     /// `userid`/`host` to delete the matching keyring password.
     #[test]
     fn remove_returns_the_entry_and_drops_it() {
@@ -344,7 +346,7 @@ mod tests {
         assert_eq!(cfg.hosts.len(), 1, "a failed remove changes nothing");
     }
 
-    /// `default` must never name an entry that is gone: `host(&cfg.default)`
+    /// `default` must never name a connection that is gone: `host(&cfg.default)`
     /// would then error on every launcher load.
     #[test]
     fn remove_repoints_default_at_a_survivor() {
@@ -368,7 +370,7 @@ mod tests {
         assert_eq!(cfg.default, "");
     }
 
-    /// Removing one of two entries must not disturb the other, nor the
+    /// Removing one of two connections must not disturb the other, nor the
     /// app-level settings that sit outside the array.
     #[test]
     fn remove_keeps_the_other_entry_and_app_settings() {

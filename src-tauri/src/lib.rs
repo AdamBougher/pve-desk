@@ -20,7 +20,7 @@ use std::sync::Mutex;
 
 /// App-wide state shared with Tauri commands.
 ///
-/// Keyed by config entry id. v1 holds at most one (Q16.1: "one now, shaped
+/// Keyed by connection id. v1 holds at most one (Q16.1: "one now, shaped
 /// for several"), enforced by `set_only`; the map is here so allowing
 /// several later is a local change.
 #[derive(Default)]
@@ -29,7 +29,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// The one live session, with the id of the entry it belongs to.
+    /// The one live session, with the id of the connection it belongs to.
     pub fn current(&self) -> Option<(String, api::Session)> {
         let sessions = self.sessions.lock().unwrap();
         sessions.iter().next().map(|(k, v)| (k.clone(), v.clone()))

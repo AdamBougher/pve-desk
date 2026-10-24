@@ -91,7 +91,7 @@ function connectionRow(c) {
   remove.disabled = c.connected;
   remove.title = c.connected
     ? "Log out before removing this connection"
-    : "Delete this saved login and its keyring password";
+    : "Delete this connection and its keyring password";
   remove.addEventListener("click", () => removeConnection(c));
 
   li.append(label, state, go, remove);
@@ -259,7 +259,7 @@ $("logout").addEventListener("click", async () => {
   try {
     await invoke("logout");
     clearGuests();
-    status("Logged out. Your saved login is still stored.");
+    status("Logged out. Your connection is still saved.");
     showLauncher();
   } catch (err) {
     status(`Log out failed: ${err}`);

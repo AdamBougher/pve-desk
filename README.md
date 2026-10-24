@@ -30,18 +30,18 @@ Windows and wanted the same experience on Linux, so I built one.
 - **Connection launcher.** The app opens on your saved connections. Each one
   shows whether the node is reachable and whether its session is still valid.
   The reachability check sends no credentials.
-- **Saved logins, removable.** Your password goes to the system keyring. Host,
-  port, username and realm go to a plain config file. Several connections can
-  be saved; one is signed in at a time. **Remove** deletes an entry and its
-  keyring password together, after asking — log out first, since the
-  connection you are signed in to is refused.
+- **Saved connections, removable.** Your password goes to the system
+  keyring. Host, port, username and realm go to a plain config file. Several
+  connections can be saved; one is signed in at a time. **Remove** deletes a
+  connection and its keyring password together, after asking — log out first,
+  since the connection you are signed in to is refused.
 - **One window, two tabs.** An **Admin** / **Guests** strip switches between
   the Proxmox web UI and the guest list. Admin is greyed out until you
   connect.
 - **Embedded admin panel, already signed in.** The full Proxmox web UI with
   no login form — the app injects the session ticket as a cookie before the
   page loads. Opens automatically on connect.
-- **Consoles work.** Node shells and VM/container consoles run inside the
+- **Consoles work.** Node shells and guest consoles run inside the
   panel.
 - **Guest list.** A summary of every VM and container — status, node, VMID,
   tags — refreshed every 30 seconds, with a search box over name, VMID, node
@@ -102,7 +102,7 @@ On your desktop:
 
 - A **Secret Service** keyring running — GNOME Keyring, KWallet, or KeePassXC
   with Secret Service enabled. Without one, the password can't be stored and
-  saved logins won't work.
+  saved connections won't work.
 - `virt-viewer`, only if you want SPICE.
 
 ## Install
@@ -240,7 +240,7 @@ PVE_DESK_RENDER=raw pve-desk      # stock WebKit, no workaround
 
 Linux-only; no effect elsewhere.
 
-**Saved logins don't stick.** No Secret Service keyring is running, or it's
+**Saved connections don't stick.** No Secret Service keyring is running, or it's
 locked. There is no password-prompt fallback yet.
 
 **The connection is refused after a certificate renewal.** If your node is on
