@@ -493,6 +493,56 @@ the same time. README tells Arch users to run `makepkg -si` in that directory,
 so the documented path left 1.5G of `src/` untracked in the tree — anyone
 following README hit it, not just this run.
 
+### The Arch package gets CI coverage, but not a published binary (2026-10-24)
+**`release.yml` gained a version guard and a `pkgbuild` job.** Until now
+neither workflow referenced `packaging/arch/` at all, so a bad source URL or a
+mistyped dependency shipped silently — and both failure modes had already
+happened (the `v1.0` 404, and `!lto`). Two checks, both cheap:
+
+- A tag-gated step in the `appimage` job asserting `pkgver` ==
+  `tauri.conf.json` version == tag, before the build rather than after. This
+  is precisely the `v1.0` bug, and it now fails the release instead of
+  shipping a PKGBUILD that 404s.
+- A `pkgbuild` job in an `archlinux:base-devel` container running
+  `makepkg -o --noprepare --nodeps`, then asserting the tarball extracted to
+  `src/pve-desk-$pkgver` with a `src-tauri/` inside it. `--noprepare` because
+  `prepare()` runs `cargo fetch --locked`, which would pull Rust and the whole
+  registry in to prove nothing this job is about.
+
+It runs **in parallel** with the AppImage build, not after it: GitHub generates
+`/archive/refs/tags/<tag>.tar.gz` from the tag, so the source exists the moment
+the workflow triggers. It does not gate the publish, and does not need to — the
+release is a draft until the notes are written by hand.
+
+Two things found by testing the steps locally before committing, both of which
+would have been silent failures in CI. `pacman -Si` cannot check a dependency
+list: it matches package names only, so `cargo` fails, because on Arch that is
+a `provides` of `rust`. `pacman -Sddp --print-format '%n'` resolves provides
+and installs nothing. And the resolver is piped into `head`, so `pipefail` is
+load-bearing — without it a missing package passes with an empty provider.
+
+**Deliberately not added:**
+
+- **The built `.pkg.tar.zst` as a release asset.** Arch is rolling, so a binary
+  package is only valid against the library versions present when it was built.
+  One built in CI against last month's `webkit2gtk-4.1` may not load on a
+  current system, which buys bug reports nobody can reproduce. Arch users build
+  from the PKGBUILD or the AUR.
+- **`.SRCINFO` generation.** Only needed to submit to the AUR, which is still
+  deferred ("Releases on GitHub", above).
+- **A full `makepkg` in CI.** It would catch an `!lto` regression, but costs a
+  release build plus the test suite on every tag. `-o` catches the failure that
+  actually happened; revisit if the PKGBUILD starts changing often.
+
+**Still open: `sha256sums=('SKIP')`.** The PKGBUILD verifies nothing about the
+tarball it downloads, which sits oddly beside a README that tells AppImage
+users to run `sha256sum -c`. Not fixed by reflex, because GitHub's
+auto-generated tarballs are not contractually byte-stable — a compression
+change in 2023 invalidated pinned hashes across many AUR packages — so a
+pinned hash needs CI to regenerate it per tag and commit back to `main`. The
+better end state is a `git+https://…#tag=` source, which verifies by commit.
+Decide it before the AUR submission, not after.
+
 ### The icon's chevrons carry an explicit light fill (F20, 2026-10-23)
 `src-tauri/icons/icon.svg` gave the X `fill:#e57000` but left the top and
 bottom chevrons with **no fill at all**, so they defaulted to black. On a dark

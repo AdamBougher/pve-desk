@@ -37,6 +37,29 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Fails the release before the build, not after. packaging/arch/PKGBUILD
+      # hardcodes pkgver and builds its source URL from v$pkgver, so a drift
+      # between these three is a 404 for every Arch user. That is not
+      # hypothetical: v1.0 was tagged with two components, so the PKGBUILD
+      # asked for v1.0.0.tar.gz and got a 404. See "Release tags carry three
+      # components" in DECISIONS.md.
+      - name: PKGBUILD agrees with the tag and the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          pkgver=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+          appver=$(jq -r .version src-tauri/tauri.conf.json)
+          tagver="${GITHUB_REF_NAME#v}"
+          echo "pkgver=$pkgver  tauri.conf.json=$appver  tag=$tagver"
+          if [ "$pkgver" != "$appver" ]; then
+            echo "PKGBUILD pkgver ($pkgver) != tauri.conf.json version ($appver)" >&2
+            exit 1
+          fi
+          if [ "$pkgver" != "$tagver" ]; then
+            echo "PKGBUILD pkgver ($pkgver) != tag ($tagver)" >&2
+            exit 1
+          fi
+
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
@@ -121,3 +144,85 @@ jobs:
           done
 
           gh release upload "$GITHUB_REF_NAME" "$appimage" "$dir/$file.sha256" --clobber
+
+  # The first CI coverage packaging/arch/PKGBUILD has ever had. The appimage
+  # job proves nothing about it, so a bad source URL or a mistyped dependency
+  # shipped silently — both of which have happened (DECISIONS.md, "Release
+  # tags carry three components" and "The Arch package needs options=(!lto)").
+  #
+  # Runs in PARALLEL with the AppImage build, not after it: GitHub generates
+  # /archive/refs/tags/<tag>.tar.gz from the TAG, so the source exists as soon
+  # as this workflow triggers. It does not wait on the release, which is a
+  # draft anyway — a broken Arch path cannot reach anyone before the notes are
+  # written by hand.
+  pkgbuild:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+
+    steps:
+      # actions/checkout shells out to git when it is present; install it
+      # first so the checkout is a clone rather than a tarball fetch.
+      - name: Install git
+        run: pacman -Sy --noconfirm --needed git
+
+      - uses: actions/checkout@v5
+
+      # makepkg refuses to run as root, by design.
+      - name: Create a build user
+        run: |
+          set -euo pipefail
+          useradd -m build
+          chown -R build packaging/arch
+
+      # --noprepare: prepare() runs `cargo fetch --locked`, which would drag
+      #   Rust and the whole registry into this container to prove nothing
+      #   this job is about.
+      # --nodeps: nothing is compiled here, and the dependency NAMES are
+      #   checked in the next step without installing them.
+      # The directory assertion is the real point. A tag whose name does not
+      # match pkgver downloads something that extracts to the wrong directory,
+      # which is the failure v1.0 shipped with.
+      - name: Source downloads and extracts to the expected directory
+        run: |
+          set -euo pipefail
+          su build -c 'cd packaging/arch && makepkg -o --noprepare --nodeps --noconfirm'
+          pkgver=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+          dir="packaging/arch/src/pve-desk-$pkgver"
+          if [ ! -d "$dir" ]; then
+            echo "expected the tarball to extract to $dir; found:" >&2
+            ls -1 packaging/arch/src >&2
+            exit 1
+          fi
+          if [ ! -f "$dir/src-tauri/Cargo.toml" ]; then
+            echo "$dir has no src-tauri/Cargo.toml — wrong tree?" >&2
+            exit 1
+          fi
+          echo "ok: $dir"
+
+      # Catches a typo in depends/makedepends without installing a single
+      # package. Version constraints are stripped so glibc>=2.3 still resolves
+      # to glibc.
+      #
+      # `pacman -Si` is the wrong tool here and was the first thing tried:
+      # it matches package NAMES only, so `cargo` fails — on Arch that is a
+      # `provides` of `rust`, not a package. `-Sddp --print-format` resolves
+      # provides and prints rather than installs; -dd skips the dependency
+      # resolution we do not need. Verified locally against all eight
+      # declared names, and against webkit2gtk-4.2 as a negative control.
+      - name: Every declared dependency exists in the repos
+        run: |
+          set -euo pipefail
+          su build -c 'cd packaging/arch && makepkg --printsrcinfo' \
+            | sed -n 's/^[[:space:]]*\(make\)\?depends = //p' \
+            | sed 's/[<>=].*//' | sort -u > /tmp/deps
+          cat /tmp/deps
+          # `pipefail` above is load-bearing: the resolver is piped into
+          # head, and without it the pipeline reports head's status, so a
+          # missing package passes silently with an empty provider. Measured
+          # both ways before committing this.
+          while read -r d; do
+            provider=$(pacman -Sddp --print-format '%n' --noconfirm "$d" 2>/dev/null | head -1) \
+              || { echo "nothing provides: $d" >&2; exit 1; }
+            echo "  $d -> $provider"
+          done < /tmp/deps
