@@ -437,6 +437,62 @@ AppImage section carries the `rm` commands. The Arch package needs no note: it
 installs unversioned `pve-desk.desktop` and `pve-desk.png` and replaces them
 in place.
 
+### The Arch package needs `options=(!lto)` (F12, 2026-10-23)
+**Without it the release build does not link.** `makepkg.conf` ships
+`OPTIONS=(... lto ...)` with `LTOFLAGS="-flto=auto"`, so `ring`'s build script
+compiles its C sources into GCC GIMPLE objects. `rust-lld` cannot read those,
+so every C symbol in `libring.a` is undefined at link time: a dozen
+`ring_core_0_17_14__*` misses (`aes_nohw_encrypt`, `x25519_sc_reduce`,
+`CRYPTO_memcmp`, …), then "A failure occurred in build()", exit 4.
+
+Not a toolchain mismatch — `RUSTUP_TOOLCHAIN=stable` resolves to the same
+1.97.1 the repo pins. `options=(!lto)` is what Rust packages on Arch
+conventionally carry. Measured both ways against the published v1.0.1 tarball
+on 2026-10-23: fails without it, builds with it.
+
+The `v1.0.1` tarball still contains the pre-fix PKGBUILD. Harmless, and not
+worth a retag: the PKGBUILD is used from the repo or the AUR and pulls the
+tarball by version, so it is never the copy inside the tarball that runs.
+
+### F12 is finished except on a second machine (2026-10-24)
+**`makepkg -si` is verified; the AppImage has still never started on a machine
+without Rust.** The install half ran on 2026-10-24: exit 0,
+`pve-desk 1.0.1-1`, and all six payload paths present — the binary,
+`pve-desk.desktop`, 32x32 + 128x128 + scalable icons, and the LICENSE. The
+installed entry is byte-identical to `packaging/pve-desk.desktop`, which is
+what finally let the window-class scenario close on the file it actually
+names.
+
+A method note worth keeping, because the first attempt produced a false pass.
+With the package not installed, the only menu entry naming pve-desk was the
+AppImage's integrated `pve-desk_1.0.0_amd64.desktop`. Launching from it shows
+an icon — from that entry's own `Icon=` key — while proving nothing about
+`StartupWMClass` or about `packaging/`, since a versioned basename cannot
+match `app_id`. **Clear the integrated entries before measuring the taskbar;
+it is part of the measurement, not tidiness.**
+
+One correction to the Q12.2 record above: by 2026-10-24 that stale entry was
+not the trap it was first described as. Its icon hashed `eb8b4dbc…`, identical
+to the current `src-tauri/icons/icon.png`, and its `Exec` target still
+existed. README's warning stands as a general warning about integrated
+entries, not as a description of this one.
+
+The Wayland `app_id` was read twice more the same day (13:16:08 and 13:36:59),
+both `class=pve-desk name=pve-desk`, which agrees with the KWin-script reading
+already recorded. `xprop` could **not** be re-run: the session is
+Wayland-native and there is no X11 window to read. The string-match clause
+therefore rests on the 2026-10-23 XWayland reading, still valid because
+`packaging/pve-desk.desktop` has not changed since.
+
+What is unproven and moved to #30: this desktop has glibc 2.44 and a full Rust
+toolchain, so it disqualifies itself as the portability test. A Guest on the
+node is the cheapest second machine; none existed when F12 closed.
+
+`.gitignore` gained `/packaging/arch/{src,pkg}/` and the two archive globs at
+the same time. README tells Arch users to run `makepkg -si` in that directory,
+so the documented path left 1.5G of `src/` untracked in the tree — anyone
+following README hit it, not just this run.
+
 ### The icon's chevrons carry an explicit light fill (F20, 2026-10-23)
 `src-tauri/icons/icon.svg` gave the X `fill:#e57000` but left the top and
 bottom chevrons with **no fill at all**, so they defaulted to black. On a dark

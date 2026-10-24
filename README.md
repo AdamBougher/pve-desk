@@ -117,9 +117,12 @@ sha256sum -c pve-desk_1.0.1_amd64.AppImage.sha256
 ./pve-desk_1.0.1_amd64.AppImage
 ```
 
-Built by CI on Ubuntu 22.04, so it expects glibc 2.35 or newer. I run the app
-from source day to day, so if the AppImage misbehaves on your distro, open an
-issue — that's the build I have the least mileage on.
+Built by CI on Ubuntu 22.04, so it expects glibc 2.35 or newer. Be warned that
+this is the least proven thing here: the checksum verifies, but the AppImage
+has never been *seen to start* on any machine but the one that built it — the
+machine it is developed on has Rust and glibc 2.44, so it cannot be that test.
+The Arch package below is the path that gets installed and run. If the
+AppImage misbehaves on your distro, please open an issue.
 
 If your desktop offered to add pve-desk to your menu, the entry it wrote is
 named after the AppImage file, version and all — so after upgrading you can be

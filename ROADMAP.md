@@ -29,19 +29,18 @@ approaches in there were built, tested and removed.
 
 ## The three passes
 
-v1 is a launcher, the embedded Proxmox panel, and a local list with power
-actions — complete apart from packaging. v2 is performance, and the local view
-earning the name *Home*. v3 is Home becoming a replacement for Admin: a
-guest's logs, its shell, and its options.
+v1 is a launcher, Admin, and a local list with power actions, and it is done.
+v2 is performance, and the local view earning the name *Home*. v3 is Home
+becoming a replacement for Admin: a guest's logs, its shell, and its options.
 
-### v1 — what's left
+### v1 — complete
 
-One feature, and what is left in it is not code: it is `makepkg -si` on this
-machine, and the AppImage started on a second machine that never had Rust.
-
-| Issue | Feature | State |
-| --- | --- | --- |
-| [#9](https://github.com/AdamBougher/pve-desk/issues/9) | F12 — Packaging and release | `wip` |
+Nothing outstanding. F12 closed on 2026-10-24: `makepkg -si` installs the
+Arch package and its `.desktop` entry, and the published AppImage carries a
+checksum that verifies. One thing was never run and is not a feature — the
+AppImage has never been *seen to start* on a machine without Rust, which this
+one cannot be. That scenario lives in
+[#30](https://github.com/AdamBougher/pve-desk/issues/30).
 
 ### v2 — performance, and Home earning its name
 
