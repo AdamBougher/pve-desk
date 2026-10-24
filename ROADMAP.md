@@ -86,6 +86,7 @@ on screen rather than in a header the admin panel hides.
 | [#27](https://github.com/AdamBougher/pve-desk/issues/27) | F17 — Windows and macOS | `unverified` `windows` |
 | [#28](https://github.com/AdamBougher/pve-desk/issues/28) | F18 — Containerised dev environment | `unverified` `linux` |
 | [#29](https://github.com/AdamBougher/pve-desk/issues/29) | F30 — A password prompt when the keyring will not answer | `todo` |
+| [#31](https://github.com/AdamBougher/pve-desk/issues/31) | F36 — Proxmox Datacenter Manager as a second remote type | `todo` |
 
 ---
 
@@ -102,4 +103,5 @@ thing to check when the opportunity appears.
 
 The `F<n>` in an issue title is permanent and is how features refer to each
 other. It is **not** the issue number and the two do not match: cite the
-F-number in prose, the `#number` only in links. Highest assigned: F34.
+F-number in prose, the `#number` only in links. Highest assigned: F36 — F35
+is deliberately retired, see `DECISIONS.md`.
