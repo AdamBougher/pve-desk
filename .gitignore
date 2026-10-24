@@ -29,5 +29,13 @@ Thumbs.db
 # connection happens to be in the local config.
 /.claude/skills/run-pve-desk/shots/
 
+# makepkg output. README tells Arch users to run `makepkg -si` in
+# packaging/arch, so the documented path leaves src/ (1.5G), pkg/, the source
+# tarball and the built package behind. All regenerable; none of it is ours.
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/*.tar.gz
+/packaging/arch/*.pkg.tar.zst
+
 # Note: no secrets live in this repo. The password is in the system keyring
 # and config.toml lives in ~/.config/pve-desk/, never in the tree.
