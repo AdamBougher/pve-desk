@@ -6,19 +6,39 @@
 //   node .claude/skills/run-pve-desk/driver.mjs smoke        # scripted flow + asserts
 //   node .claude/skills/run-pve-desk/driver.mjs repl         # stdin REPL
 //
-// Needs /usr/bin/WebKitWebDriver (Arch: webkit2gtk-4.1) and a display.
-// MiniBrowser has no --headless; on a headless box wrap with xvfb-run.
+// Needs a display plus, on Arch, two packages: webkitgtk-6.0 for
+// /usr/bin/WebKitWebDriver (4.1 ships no driver binary) and webkit2gtk-4.1
+// for the MiniBrowser this points at. MiniBrowser rejects --headless
+// ("Cannot parse arguments: Unknown option --headless"), so a headless box
+// would need xvfb-run around it — untested, there is no xvfb here.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { createRequire } from "node:module";
 
 const UI = resolve(import.meta.dirname, "../../../ui");
 const SHOTS = resolve(import.meta.dirname, "shots");
-const PORT = Number(process.env.WKD_PORT || 4477);
-const EL = "element-6066-11e4-a52e-4f735466cecf";
+const WINDOW = "pve-desk-driver";
+
+// An ephemeral port, not a fixed one. A WebKitWebDriver whose session died of
+// a page crash keeps running and keeps its port, so a hardcoded port means the
+// next run fails to bind and reports "not ready" — which looks like a broken
+// driver rather than a leftover one.
+async function freePort() {
+  const { createServer } = await import("node:net");
+  return new Promise((ok, no) => {
+    const srv = createServer();
+    srv.once("error", no);
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => ok(port));
+    });
+  });
+}
+let PORT = Number(process.env.WKD_PORT || 0);
 
 // ---------------------------------------------------------------- fixtures
 // Shapes copied from the Rust types, not invented: Connection and
@@ -140,12 +160,38 @@ function buildPage() {
   }
   writeFileSync(
     join(dir, "index.html"),
-    html.replace('<script src="main.js">', '<script src="__stub.js"></script>\n  <script src="main.js">'),
+    html
+      .replace('<script src="main.js">', '<script src="__stub.js"></script>\n  <script src="main.js">')
+      // The real app titles its window "pve-desk" too, and screenshots are
+      // taken by matching the window name — so rename this one.
+      .replace("<title>pve-desk</title>", `<title>${WINDOW}</title>`),
   );
   return join(dir, "index.html");
 }
 
+// Module-level so the cleanup path can reach it even when start() throws
+// partway through — an earlier version lost the handle that way and leaked a
+// driver process holding the port.
+let driverProc = null;
+// MiniBrowser is a grandchild — WebKitWebDriver spawns it — so killing the
+// driver does not always take it with it. A run killed by a timeout leaves
+// one behind, and the orphan keeps an X window with the same title that
+// screenshots then try (and fail) to capture. Snapshot the pids that existed
+// before this run so stop() can kill only the ones this run created.
+function browserPids() {
+  const { execSync } = createRequire(import.meta.url)("node:child_process");
+  try {
+    return execSync("pgrep -f MiniBrowser", { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] })
+      .trim().split(/\s+/).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+let preexistingBrowsers = [];
+
 async function start() {
+  if (!PORT) PORT = await freePort();
+  preexistingBrowsers = browserPids();
   // GDK_BACKEND=x11 is load-bearing, not tidying. On a Wayland session
   // MiniBrowser dies the moment it paints real content —
   //   Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display
@@ -158,7 +204,12 @@ async function start() {
     detached: false,
     env: { ...process.env, GDK_BACKEND: "x11" },
   });
-  proc.unref();
+  driverProc = proc;
+  let stderr = "";
+  proc.stderr.on("data", (d) => { stderr += d; });
+  proc.on("exit", (code) => {
+    if (code) console.error(`WebKitWebDriver exited ${code}: ${stderr.trim()}`);
+  });
   await waitForDriver();
   session = (
     await wd("POST", "/session", {
@@ -176,12 +227,16 @@ async function start() {
   await s("POST", "/url", { url: `file://${buildPage()}` });
   // main.js boots asynchronously (showLauncher awaits list_connections).
   await waitUntil(() => count("#connections li").then((n) => n > 0), "launcher rows");
-  return proc;
 }
 
-async function stop(proc) {
+async function stop() {
   try { if (session) await wd("DELETE", `/session/${session}`); } catch {}
-  try { proc.kill("SIGTERM"); } catch {}
+  try { if (driverProc) driverProc.kill("SIGTERM"); } catch {}
+  for (const pid of browserPids()) {
+    if (!preexistingBrowsers.includes(pid)) {
+      try { process.kill(Number(pid), "SIGTERM"); } catch {}
+    }
+  }
 }
 
 // ---------------------------------------------------------------- dom helpers
@@ -222,13 +277,76 @@ async function waitUntil(fn, what, ms = 5000) {
   }
 }
 
+// WebDriver's own GET /screenshot HANGS on this machine — it never answers
+// and the run dies on whatever timeout wraps it. The driver log fills with
+//   Failed to create GBM buffer of size 1024x732: Invalid argument
+// and with WEBKIT_DMABUF_RENDERER_DISABLE_GBM=1 it becomes "Failed to import
+// DMABuf" instead. WebKit cannot render into an offscreen buffer on this
+// NVIDIA setup, which is the same family of trouble DECISIONS.md records for
+// the app's own rendering. Reading the X pixmap sidesteps it completely:
+// the window is on screen and X already has the pixels.
+// MiniBrowser launched with --automation prefixes its window title, so the
+// X name is "[Automation] pve-desk-driver", not "pve-desk-driver". `import
+// -window <name>` does not match that and blocks until it is killed, which
+// reads as a hang. Resolving the id out of _NET_CLIENT_LIST first avoids
+// name-matching altogether.
+function windowIds() {
+  const { execSync } = createRequire(import.meta.url)("node:child_process");
+  const list = execSync("xprop -root _NET_CLIENT_LIST", { encoding: "utf8" });
+  const ids = (list.split("# ")[1] || "").trim().split(/,\s*/);
+  const hits = [];
+  for (const id of ids) {
+    try {
+      const nm = execSync(`xprop -id ${id} WM_NAME`, { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] });
+      if (nm.includes(WINDOW)) hits.push(id);
+    } catch {}
+  }
+  // Newest last: an orphaned MiniBrowser from a killed run keeps its window
+  // listed and its title, and capturing that one fails. Try the newest first
+  // and fall through the rest.
+  return hits.reverse();
+}
+
 async function shot(name) {
-  const png = await s("GET", "/screenshot");
   const { mkdirSync } = await import("node:fs");
+  const { execFileSync } = await import("node:child_process");
   mkdirSync(SHOTS, { recursive: true });
   const file = join(SHOTS, `${name}.png`);
-  writeFileSync(file, Buffer.from(png, "base64"));
-  return file;
+  try {
+    const ids = windowIds();
+    if (!ids.length) return `(no screenshot: no X window named ${WINDOW})`;
+    let captured = false;
+    for (const id of ids) {
+      try {
+        execFileSync("import", ["-window", id, file], { stdio: "pipe", timeout: 20000 });
+        captured = true;
+        break;
+      } catch {}
+    }
+    if (!captured) return `(no screenshot: none of ${ids.length} window(s) could be captured)`;
+    // A capture with one or two unique colours is a window that never
+    // painted. That happens on this machine (see the header note), and a
+    // blank PNG handed back without comment is worse than none — an agent
+    // will read it as "the UI is empty" rather than "the GPU lost".
+    // Count colours BELOW MiniBrowser's chrome. The toolbar and URL bar are
+    // always colourful (519 unique colours in a measured blank capture), so
+    // the whole image never looks empty even when the page painted nothing.
+    const colours = Number(
+      execFileSync(
+        "magick",
+        [file, "-crop", "100%x100%+0+80", "+repage", "-format", "%k", "info:"],
+        { encoding: "utf8" },
+      ).trim(),
+    );
+    if (colours <= 2) {
+      return `${file} (BLANK — ${colours} colour(s); the window did not paint. ` +
+        `The DOM checks above are still valid. For a real picture of the UI, ` +
+        `screenshot the app itself: see app-shot.sh)`;
+    }
+    return file;
+  } catch (e) {
+    return `(no screenshot: ${String(e.message).split("\n")[0]})`;
+  }
 }
 
 const calls = () => exec("return window.__CALLS");
@@ -253,10 +371,22 @@ async function smoke() {
   check("probe reported reachable", (await text("#connections li")).includes("Reachable"));
 
   console.log("certificate refusal");
-  await setResponse("connect", { status: "certificate_unverified", fingerprint: "F8:53:5C:AA" });
+  // api.rs:93 builds the fingerprint as bare lowercase hex with no
+  // separators; askTrust() in main.js is what groups it into pairs for
+  // comparing against openssl by eye. A pre-grouped fixture gets re-grouped
+  // into nonsense, so the fixture has to be the wire format.
+  const FP = "f8535c1d9e4a7b2c8f0e6d3a5b9c7e1f4a8d2b6c0e9f3a7d5b1c8e4f2a6d0b9c";
+  const FP_SHOWN =
+    "F8:53:5C:1D:9E:4A:7B:2C:8F:0E:6D:3A:5B:9C:7E:1F:4A:8D:2B:6C:0E:9F:3A:7D:5B:1C:8E:4F:2A:6D:0B:9C";
+  await setResponse("connect", { status: "certificate_unverified", fingerprint: FP });
   await click("#connections li button");
   await waitUntil(() => visible("#cert-confirm"), "cert panel");
-  check("fingerprint shown", (await text("#cert-fingerprint")) === "F8:53:5C:AA");
+  const shown = await text("#cert-fingerprint");
+  check("fingerprint shown grouped in pairs", shown === FP_SHOWN, shown);
+  check(
+    "password was not sent while the cert is unconfirmed",
+    !JSON.stringify(await calls()).includes("password"),
+  );
   await click("#cert-cancel");
   check("cancel says nothing was sent", (await text("#status")).includes("nothing was sent"));
 
@@ -403,24 +533,23 @@ async function repl() {
 
 // ---------------------------------------------------------------- main
 const mode = process.argv[2] || "smoke";
-let proc;
 try {
-  proc = await start();
+  await start();
   if (mode === "smoke") {
     const n = await smoke();
     console.log(n === 0 ? "\nall checks passed" : `\n${n} check(s) FAILED`);
-    await stop(proc);
+    await stop();
     process.exit(n === 0 ? 0 : 1);
   } else if (mode === "repl") {
     await repl();
-    await stop(proc);
+    await stop();
   } else {
     console.error(`unknown mode: ${mode} (smoke|repl)`);
-    await stop(proc);
+    await stop();
     process.exit(2);
   }
 } catch (e) {
   console.error(`driver failed: ${e.message}`);
-  if (proc) await stop(proc);
+  await stop();
   process.exit(3);
 }

@@ -25,5 +25,9 @@ Thumbs.db
 # Stray logs
 *.log
 
+# Screenshots the run skill takes. Run artifacts, and they picture whatever
+# connection happens to be in the local config.
+/.claude/skills/run-pve-desk/shots/
+
 # Note: no secrets live in this repo. The password is in the system keyring
 # and config.toml lives in ~/.config/pve-desk/, never in the tree.
