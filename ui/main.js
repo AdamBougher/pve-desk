@@ -5,16 +5,22 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const $ = (id) => document.getElementById(id);
-const status = (msg) => { $("status").textContent = msg || ""; };
+// F21 Q21.2: mirrored to the native label beside the tab strip too, so a
+// message is visible even while Admin covers this page. Fire-and-forget —
+// a failed invoke must not break the caller, and nothing here awaits it.
+const status = (msg) => {
+  $("status").textContent = msg || "";
+  invoke("set_status", { msg: msg || "" }).catch(() => {});
+};
 
 // The backend reports what it did with the node's TLS certificate (F3/F4).
 listen("admin-cert", (e) => status(`Admin panel: ${e.payload}`));
 
 // F2/Q2.2: the node stopped accepting the session and re-login failed too.
 // Go back to the launcher rather than retrying every 30s against a dead one.
-// The native Guests button switches in the backend; refresh what it reveals.
+// The native Home button switches in the backend; refresh what it reveals.
 listen("tab", (e) => {
-  if (e.payload === "guests") refresh();
+  if (e.payload === "home") refresh();
 });
 
 listen("session-lost", async (e) => {
@@ -244,13 +250,11 @@ $("setup-form").addEventListener("submit", async (e) => {
 // ---- session ----
 
 function startSession() {
+  // F21: Home is where you land, not Admin — Q16.3's auto-open is reversed.
+  // Admin builds lazily on its own tab's first click, same as it always did.
   show("main");
   refresh();
   refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
-  // Open on the admin panel: it is the view actually used (Q16.3).
-  invoke("open_admin_panel").catch((err) => {
-    status(`Admin panel failed to open: ${err}`);
-  });
 }
 
 $("logout").addEventListener("click", async () => {

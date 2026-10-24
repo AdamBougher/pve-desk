@@ -2885,7 +2885,7 @@ dependencies = [
 
 [[package]]
 name = "pve-desk"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "dirs 6.0.0",
  "gtk",

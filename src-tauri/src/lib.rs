@@ -103,6 +103,7 @@ pub fn run() {
             commands::open_admin_panel,
             commands::hide_admin_panel,
             commands::logout,
+            commands::set_status,
         ])
         .setup(|app| {
             // F14: on Linux the tab bar is a native widget, because GTK can

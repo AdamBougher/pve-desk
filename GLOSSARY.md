@@ -71,9 +71,8 @@ started. A Template is a Guest; Home hides it from the list.
 
 **Home**:
 The local, native view of a Node: the place you land, that answers the
-routine questions without a trip to Admin. The planned name — the tab is
-still labelled "Guests" on screen.
-_Avoid_: the guest list, the local tab
+routine questions without a trip to Admin. The tab strip reads "Home" (F21).
+_Avoid_: the guest list, the local tab, Guests (as the tab's name)
 
 **Admin**:
 The embedded Proxmox web interface, signed in and ready. The thing Home is

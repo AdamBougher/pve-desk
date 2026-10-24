@@ -111,8 +111,18 @@ via `webkit2gtk`'s `allow_tls_certificate_for_host`.
   the app's commands — is visible at a glance rather than argued from origin
   rules. Proxmox sends no `X-Frame-Options` or CSP, so a tab stays viable
   (F14).
-- It opens automatically on connect, because it is the view actually used.
-  (Q16.3)
+- ~~It opens automatically on connect, because it is the view actually
+  used. (Q16.3)~~ **Reversed 2026-10-24, under F21.** Home is now where
+  connecting lands; Admin opens only on its own tab click. What changed:
+  F21 gave Home an explicit reason to exist — "Admin is somewhere I go, not
+  where I live" — and auto-opening Admin on every connect contradicted that
+  the moment it shipped. Caught by the user watching a real connect: Home
+  showed for a frame, then Admin covered it, which is the "flash" this
+  removes. No config toggle added; this is now the only behaviour.
+  `show_admin` already builds the webview lazily regardless of when it is
+  first called, so nothing about Admin's own lazy-build path changed —
+  only `startSession()` in `main.js` lost its unconditional
+  `invoke("open_admin_panel")` call.
 
 ### Power controls — cut, then revived (F6)
 **Cut 2026-10-21.** The embedded Proxmox UI already does start / shutdown /
@@ -287,6 +297,70 @@ Accepted costs: an unstable API surface, and geometry managed by hand.
   `--tab-bar-height` in `ui/style.css`. Nothing keeps them in sync; if they
   diverge the local webview either clips the tabs or leaves a gap under them.
 
+### The local tab is Home (F21, 2026-10-24)
+**Q21.1: the window title follows the tab.** `"pve-desk — Home"` /
+`"pve-desk — Admin"`, set at every point that already drives visibility —
+the Home button's click handler, both branches of `show_admin` (an existing
+webview shown again, and a new one built), and `hide_admin_panel` (reached
+when `session-lost` brings Home back to front). A small, low-risk change;
+not a Hard Rule area, so no architecture stop was needed beyond confirming
+the choice itself.
+
+**Q21.2: the status line gets a native GTK label beside the tab strip, and
+the whole line moves there, not just the one message that needed it.**
+`admin-cert` is the message that actually forced this: it fires while the
+admin webview is still loading — including the REFUSED-certificate text the
+Hard Rules say must never be silent — and that is exactly when the page's
+own `#statusbar` is hidden behind Admin. Checked before deciding scope:
+`session-lost` does **not** have this problem. `hide_admin_panel` already
+calls `layout_admin(&app, false)`, which shows the local webview, and
+`main.js`'s `session-lost` listener `await`s `invoke("hide_admin_panel")`
+before it writes its message — so that message was always visible by the
+time it landed. Only `admin-cert` was ever orphaned.
+
+Scoping question this raised, decided the same day: mirror only `admin-cert`,
+or move every `status()` call in `main.js` (~20 sites) to the native label?
+Chosen: **all of them.** Simpler code — one command, no special-casing which
+messages matter — at the cost of a label nobody reads for the ~19 sites that
+were never actually at risk, since Home's own buttons can't be pressed while
+Admin is in front anyway.
+
+**The page's `#statusbar` is kept, not deleted.** This was caught while
+reasoning through the change, not asked for up front: Admin only shares a
+window with Home on Linux (F14) — on Windows and macOS, Admin has always
+opened in its own separate window, so Home is never hidden there and never
+had this problem, and there is no tab strip on those platforms to attach a
+native label to. Deleting `#statusbar` would have removed status messages
+entirely on Windows and macOS for a Linux-only fix. `status()` in `main.js`
+now does both: sets `#status`'s `textContent` as before, and fire-and-forget
+calls a new `set_status` command, which is a no-op stub on non-Linux and
+updates the GTK label on Linux — matching the existing `set_admin_tab_enabled`
+cfg split. No main.js call site needed to change; only the function body of
+`status()` did.
+
+**Tab label and title confirmed against the real app; the native label
+catching a message is not.** Built `--release` and screenshotted the running
+window: the tab strip reads "Home". That run caught a real bug —
+`set_main_title` was only wired to the three tab-*switch* points, so the
+window opened still titled the bare `"pve-desk"` from `tauri.conf.json` until
+the first click. Fixed by calling it once more at the end of
+`install_native_tabs`. Re-verified after the fix: `xprop` reports `WM_NAME`
+`"pve-desk — Home"` from the first frame, `WM_CLASS` unchanged (`"pve-desk"`,
+`"Pve-desk"`), so F12's taskbar grouping is untouched by the title now
+carrying the tab name.
+
+Also caught the same way: `driver.mjs`'s "force stop asks first" check
+compared a raw `invoke` call count before and after cancelling, which broke
+the moment `status()` started also calling `set_status` on every message —
+the cancel path's own status text is one more call the old count didn't
+expect. Fixed the test to check the actual invariant (no `power_action` sent)
+rather than total call count, which is what it meant to check all along.
+
+Not run: the native label actually receiving a message. `admin-cert` only
+fires from a real, authenticated connect, and there is no `xdotool` on this
+machine to script a click as a substitute — both missing together, not a
+deliberate skip. See issue #10 for exactly what is left to check by hand.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is
@@ -345,6 +419,26 @@ is a 200, but extracts to `pve-desk-1.0` while the PKGBUILD `cd`s into
 rewriting a public release to fix a naming slip is worse than superseding it,
 and `v1.0.1` has a second job anyway — it is the first tag to run the fixed
 checksum step (below).
+
+**The same mistake happened again, 2026-10-24: `v1.1` was tagged and pushed
+by hand without bumping any version field first.** `tauri.conf.json`,
+`Cargo.toml` and `packaging/arch/PKGBUILD`'s `pkgver` all still read `1.0.1`
+at the commit `v1.1` points to (`1ace46e`) — caught when a new window-title
+feature started reading `app.package_info().version` (sourced from
+`tauri.conf.json`) and showed `1.0.1` in a release the user knew as "1.1".
+Two components again, so this also reopens the exact 404 class above the
+moment anyone builds the Arch package against this tag by name. Not
+live-broken only because `PKGBUILD`'s `pkgver` is a separate hardcoded field
+nothing auto-updates from the tag — the release workflow's version guard
+(`e2aedf9`, added the same day) would have caught this, but it postdates the
+commit `v1.1` was pushed against, so it never got the chance to run.
+
+Decided 2026-10-24: **source bumped to `1.1.0`** — `tauri.conf.json`,
+`Cargo.toml`, `packaging/arch/PKGBUILD`'s `pkgver`, all three together, same
+as the version guard checks. **`v1.1` is left published, same reasoning as
+`v1.0` above** — not retagged, not deleted. The next real tag is `v1.1.0`,
+built against this bump, and the version guard now exists to catch this
+exact drift on every tag from here on, not just the next one.
 
 ### The v1.0 checksum names a build path (2026-10-22)
 The `.sha256` published beside the v1.0 AppImage reads

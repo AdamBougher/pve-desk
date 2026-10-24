@@ -443,16 +443,19 @@ async function smoke() {
   check("filter cleared", (await count("#guests tr")) === 4);
 
   console.log("force stop asks first");
-  const before = (await calls()).length;
+  // F21: status() now also invokes set_status (mirrored to the native GTK
+  // label), so a raw call-count comparison no longer holds across a status
+  // message — check the actual invariant instead: no power_action sent.
+  const noPowerAction = async () => !(await calls()).some((c) => c.cmd === "power_action");
   await click(
     `#guests tr:nth-child(1) button:nth-of-type(2)`,
   );
   await waitUntil(() => visible("#power-confirm"), "confirm panel");
   check("confirm names the guest", (await text("#power-target")) === "truenas (100)");
-  check("nothing sent yet", (await calls()).length === before);
+  check("nothing sent yet", await noPowerAction());
   await click("#power-cancel");
   check("cancel left it alone", (await text("#status")).includes("left alone"));
-  check("still nothing sent", (await calls()).length === before);
+  check("still nothing sent", await noPowerAction());
 
   console.log("force stop confirmed");
   await click(`#guests tr:nth-child(1) button:nth-of-type(2)`);

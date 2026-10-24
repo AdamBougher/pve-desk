@@ -7,8 +7,8 @@
 
 A Linux desktop client for [Proxmox VE](https://www.proxmox.com/en/proxmox-virtual-environment/overview),
 written in Rust with [Tauri 2](https://v2.tauri.app/). It saves your logins,
-opens the Proxmox web UI already signed in, and lists your VMs and containers
-alongside it — one window, no login form, no browser tab.
+lands you on your VMs and containers, and has the Proxmox web UI one tab away
+already signed in — one window, no login form, no browser tab.
 
 > Most of the code here was written by an AI model under my direction.
 > See [AI assistance](#ai-assistance) before you point it at a server.
@@ -35,12 +35,12 @@ Windows and wanted the same experience on Linux, so I built one.
   connections can be saved; one is signed in at a time. **Remove** deletes a
   connection and its keyring password together, after asking — log out first,
   since the connection you are signed in to is refused.
-- **One window, two tabs.** An **Admin** / **Guests** strip switches between
-  the Proxmox web UI and the guest list. Admin is greyed out until you
+- **One window, two tabs.** An **Admin** / **Home** strip switches between
+  the Proxmox web UI and the local guest list. Admin is greyed out until you
   connect.
 - **Embedded admin panel, already signed in.** The full Proxmox web UI with
   no login form — the app injects the session ticket as a cookie before the
-  page loads. Opens automatically on connect.
+  page loads. One tab away, not where you land: connecting shows Home.
 - **Consoles work.** Node shells and guest consoles run inside the
   panel.
 - **Guest list.** A summary of every VM and container — status, node, VMID,
@@ -193,8 +193,9 @@ cd src-tauri && cargo tauri build
    until you accept it. Check it against the node first:
    `openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -fingerprint -sha256`.
    Once accepted, it's pinned in your config.
-3. **Connect.** The admin panel opens signed in. Switch to **Guests** for the
-   VM and container list, where each row carries its power buttons.
+3. **Connect.** **Home** shows your VM and container list, each row with its
+   power buttons. Switch to **Admin** for the full Proxmox web UI, already
+   signed in.
 
 ## How your credentials are handled
 

@@ -370,6 +370,20 @@ pub async fn open_spice(
 /// So the tab bar is a native GTK widget (see `install_native_tabs`) and
 /// exactly one webview is visible at a time — the visible one fills the space
 /// below the strip, which needs no capping at all.
+/// Window title follows the visible tab (F21, Q21.1). Linux-only, like the
+/// tabs themselves: elsewhere Admin is its own window with its own title
+/// ("Proxmox"), and the main window never shows anything else.
+#[cfg(target_os = "linux")]
+fn set_main_title(app: &AppHandle, tab: &str) {
+    // Reads tauri.conf.json's own "version" field via Tauri's PackageInfo,
+    // not a second hardcoded copy — the same field the release workflow's
+    // version guard already cross-checks against the tag and the PKGBUILD.
+    let version = &app.package_info().version;
+    if let Some(window) = app.get_window(MAIN) {
+        let _ = window.set_title(&format!("pve-desk {version} — {tab}"));
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
     let Some(local) = app.get_webview(MAIN) else {
@@ -392,6 +406,17 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
+// The native status label beside the tab strip (F21, Q21.2).
+// Exists so a certificate message from `app.emit("admin-cert", ...)` is
+// never hidden: it fires while the admin webview is loading, which is
+// exactly when the page's own `#statusbar` is covered. Same thread-local
+// pattern as `ADMIN_TAB` and the same reason — GTK widgets are not `Send`.
+#[cfg(target_os = "linux")]
+thread_local! {
+    static STATUS_LABEL: std::cell::RefCell<Option<gtk::Label>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 /// Grey the Admin tab out until there is a session to show.
 ///
 /// Without this the button is live on the launcher, where pressing it can
@@ -409,6 +434,28 @@ pub fn set_admin_tab_enabled(app: &AppHandle, enabled: bool) {
 
 #[cfg(not(target_os = "linux"))]
 pub fn set_admin_tab_enabled(_app: &AppHandle, _enabled: bool) {}
+
+/// Write a status message to the native label beside the tab strip (F21).
+///
+/// `main.js`'s `status()` calls this in addition to its own page text, so
+/// the message is visible even while Admin covers the page. Elsewhere Admin
+/// is its own window and never covers anything, so there is no label to
+/// write to — a no-op stub, same split as `set_admin_tab_enabled`.
+#[tauri::command]
+#[cfg(target_os = "linux")]
+pub fn set_status(app: AppHandle, msg: String) {
+    let _ = app.run_on_main_thread(move || {
+        STATUS_LABEL.with_borrow(|label| {
+            if let Some(label) = label {
+                gtk::prelude::LabelExt::set_text(label, &msg);
+            }
+        });
+    });
+}
+
+#[tauri::command]
+#[cfg(not(target_os = "linux"))]
+pub fn set_status(_app: AppHandle, _msg: String) {}
 
 /// Style for the tab strip. Uses the theme's own colours rather than fixed
 /// ones, so it follows whatever GTK theme is in use.
@@ -455,10 +502,19 @@ pub fn install_native_tabs(app: &AppHandle) {
         group.style_context().add_class("linked");
 
         let admin = gtk::Button::with_label("Admin");
-        let guests = gtk::Button::with_label("Guests");
+        let home = gtk::Button::with_label("Home");
         group.pack_start(&admin, false, false, 0);
-        group.pack_start(&guests, false, false, 0);
+        group.pack_start(&home, false, false, 0);
         strip.pack_start(&group, false, false, 0);
+
+        // F21 Q21.2: a native label for status text, so an admin-cert
+        // message (in particular the REFUSED one — CLAUDE.md's hard rule on
+        // an unknown certificate) is visible even while Admin covers the
+        // page's own #statusbar. Packed to take the remaining width so it
+        // doesn't fight the buttons for space.
+        let status_label = gtk::Label::new(None);
+        strip.pack_end(&status_label, true, true, 6);
+        STATUS_LABEL.with_borrow_mut(|label| *label = Some(status_label));
 
         // Nothing to show until a session exists; `set_admin_tab_enabled`
         // turns it on at connect and off again at logout or session loss.
@@ -487,13 +543,14 @@ pub fn install_native_tabs(app: &AppHandle) {
             });
         });
 
-        let app_guests = app.clone();
-        guests.connect_clicked(move |_| {
-            if let Some(webview) = app_guests.get_webview(ADMIN_WEBVIEW) {
+        let app_home = app.clone();
+        home.connect_clicked(move |_| {
+            if let Some(webview) = app_home.get_webview(ADMIN_WEBVIEW) {
                 let _ = webview.hide();
             }
-            layout_admin(&app_guests, false);
-            let _ = app_guests.emit("tab", "guests");
+            layout_admin(&app_home, false);
+            set_main_title(&app_home, "Home");
+            let _ = app_home.emit("tab", "home");
         });
 
         // Above both webviews. A non-expanding button box has a small,
@@ -501,6 +558,14 @@ pub fn install_native_tabs(app: &AppHandle) {
         vbox.pack_start(&strip, false, false, 0);
         vbox.reorder_child(&strip, 0);
         strip.show_all();
+
+        // F21 Q21.1: the app always opens on Home (F16), so the title must
+        // say so from the first frame, not only after the first tab switch.
+        // Caught by actually running the app — app-shot.sh showed the tab
+        // strip correctly reading "Home" while the titlebar still said the
+        // bare "pve-desk" from tauri.conf.json, because every other call to
+        // set_main_title sits at a transition point that hadn't fired yet.
+        set_main_title(&app, "Home");
     });
 }
 
@@ -526,7 +591,10 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
     if let Some(existing) = app.get_webview(ADMIN_WEBVIEW) {
         existing.show()?;
         #[cfg(target_os = "linux")]
-        layout_admin(&app, true);
+        {
+            layout_admin(&app, true);
+            set_main_title(&app, "Admin");
+        }
         #[cfg(not(target_os = "linux"))]
         if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
             window.set_focus()?;
@@ -581,20 +649,23 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
     webview.set_cookie(cookie)?;
 
     #[cfg(target_os = "linux")]
-    setup_admin_webview(
-        &webview,
-        app.clone(),
-        host.name.clone(),
-        host.host.clone(),
-        url.to_string(),
-    )?;
+    {
+        setup_admin_webview(
+            &webview,
+            app.clone(),
+            host.name.clone(),
+            host.host.clone(),
+            url.to_string(),
+        )?;
+        set_main_title(&app, "Admin");
+    }
     #[cfg(not(target_os = "linux"))]
     webview.navigate(url)?;
 
     Ok(())
 }
 
-/// F14: switch back to the local Guests tab.
+/// F14/F21: switch back to the local Home tab.
 ///
 /// The webview is hidden rather than closed, so returning to the Admin tab
 /// doesn't reload the Proxmox UI or need another ticket.
@@ -607,6 +678,7 @@ pub fn hide_admin_panel(app: AppHandle) -> Result<()> {
         }
         // The local webview expands to fill the window again.
         layout_admin(&app, false);
+        set_main_title(&app, "Home");
     }
     // No tab to switch to off Linux: the panel is its own window, so hiding
     // it would strand it. Closing is what the caller (session loss) wants.
