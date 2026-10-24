@@ -119,6 +119,20 @@ Built by CI on Ubuntu 22.04, so it expects glibc 2.35 or newer. I run the app
 from source day to day, so if the AppImage misbehaves on your distro, open an
 issue — that's the build I have the least mileage on.
 
+If your desktop offered to add pve-desk to your menu, the entry it wrote is
+named after the AppImage file, version and all — so after upgrading you can be
+left with an old one pointing at an AppImage you've deleted, showing an old
+icon. Nothing in this package writes those files, so clearing them is manual:
+
+```sh
+rm ~/.local/share/applications/pve-desk_*_amd64.desktop
+rm ~/.local/share/icons/hicolor/*/apps/pve-desk_*_amd64.png
+```
+
+Then re-integrate the new AppImage, or skip integration and run it directly.
+The Arch package is not affected — it installs one unversioned entry and
+replaces it on upgrade.
+
 ### Arch / CachyOS
 
 ```sh

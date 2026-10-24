@@ -4,6 +4,12 @@ pkgver=1.0.1
 pkgrel=1
 pkgdesc="Desktop client for Proxmox VE"
 arch=('x86_64')
+# !lto is required, not cosmetic. makepkg.conf ships OPTIONS=(... lto ...)
+# with LTOFLAGS=-flto=auto, so ring's build script compiles its C sources
+# into GCC GIMPLE objects; rust-lld cannot read those and the binary fails
+# to link with a dozen undefined ring_core_0_17_14__* symbols. Measured
+# 2026-10-23 against the v1.0.1 tarball: fails without this, builds with it.
+options=(!lto)
 url="https://github.com/AdamBougher/pve-desk"
 license=('MIT')
 # webkit2gtk-4.1 is the webview; gtk3 is used directly for the tab strip

@@ -387,11 +387,79 @@ walks the window tree itself — bare `xprop` wants a click, and under
 XWayland the click goes to the compositor, not the X server, which is why
 the earlier attempt found no window to read.
 
-Still unmeasured: the Wayland `app_id`. KWin exposes no cheap window-list
-query. It is very likely `pve-desk` too (GTK derives `app_id` and the
-`WM_CLASS` instance name from the same program name), which would match the
-`pve-desk.desktop` basename that Wayland icon-matching uses — consistent
-with this desktop showing the right icon today, but not verified.
+The Wayland `app_id` is **also `pve-desk`** — measured 2026-10-24, which was
+the last unknown here. KWin exposes no window-list over plain D-Bus
+(`queryWindowInfo` wants a click), but a KWin script does, and it is
+read-only:
+
+```js
+// loaded via: qdbus6 org.kde.KWin /Scripting loadScript <file> probe
+for (const w of workspace.windowList())
+  print(w.resourceClass + " / " + w.resourceName);
+```
+
+```
+kwin_wayland[2284]: class=pve-desk name=pve-desk caption=pve-desk
+```
+
+So both display servers report the same string, as predicted — GTK derives
+`app_id` and the `WM_CLASS` instance name from the program name. The
+consequence is specific: Wayland icon-matching keys `app_id` against a
+desktop file **basename**, so the Arch package's `pve-desk.desktop` matches
+exactly, while an integrated AppImage entry named
+`pve-desk_1.0.0_amd64.desktop` cannot match at all. An AppImage user's dock
+icon therefore comes from the entry's own `Icon=` key and the window's
+embedded icon, not from window-to-launcher matching — which is why that
+combination still looks right, and why `StartupWMClass` plays no part in it
+on a Wayland session.
+
+### A stale AppImage dock entry is documented, not fixed (Q12.2, 2026-10-24)
+**README names the two files to delete; the bundle does nothing.** AppImage
+desktop integration writes
+`~/.local/share/applications/pve-desk_<version>_amd64.desktop` and an icon
+beside it, both named after the AppImage's filename — so an upgrade can leave
+the old entry in place, still carrying the pre-fix icon and an `Exec` pointing
+at an AppImage that has been deleted. That is exactly how a stale icon came to
+be photographed here as if it were F20's fix.
+
+Not ours to fix in the bundle: the naming is done by `appimaged` or the
+AppImageLauncher prompt, not by anything this repo ships, and we cannot rename
+a file we never write. Nor is it reproducible on demand — running the
+published v1.0.1 AppImage created no second entry, because whether anything
+gets integrated at all depends on the user's desktop. Shipping a workaround
+for an unreproduced problem in someone else's component is how you get code
+nobody can test.
+
+But a dead launcher entry is a real trap with a two-line cure, so README's
+AppImage section carries the `rm` commands. The Arch package needs no note: it
+installs unversioned `pve-desk.desktop` and `pve-desk.png` and replaces them
+in place.
+
+### The icon's chevrons carry an explicit light fill (F20, 2026-10-23)
+`src-tauri/icons/icon.svg` gave the X `fill:#e57000` but left the top and
+bottom chevrons with **no fill at all**, so they defaulted to black. On a dark
+panel or a dark tray only the orange X showed — half the mark invisible on
+exactly the desktops this app is used on.
+
+**Fixed with a light fill (`#f2f2f2`) on the chevrons, not a backplate.** One
+attribute, the mark keeps its shape, and the background stays transparent,
+which sits better in a tray than a plate does. The trade-off was accepted
+knowingly: on a *light* desktop the chevrons go faint and the orange X carries
+the mark. Checked by compositing `128x128.png` over `#1c1c1c`, `#2e3436` and
+`#ffffff` — both halves read on the two dark grounds, faint on white.
+
+Confirmed on a real dock 2026-10-24: the pale mark showed correctly in the
+Plasma panel at login. The icon that resolved was verified to be the current
+one by hash (`icon.png` and the integrated entry's 256px raster are both
+`eb8b4dbc…`), which matters because an earlier sighting had photographed a
+*stale* pre-fix icon from the v1.0 AppImage's integrated entry and read it as
+the fix.
+
+**Regenerating the rasters:** `cargo tauri icon` emits far more than this tree
+carries — an `.icns`, Windows Store logos, Android and iOS sets. It was run
+into a temp directory and the five tracked rasters copied back selectively, so
+the extra platforms stay out of a repo that never had them. Do it that way
+again rather than letting it write in place.
 
 ### SPICE `.vv` handling (2026-10-21)
 The `.vv` file carries a one-time console ticket, so `CLAUDE.md` requires it

@@ -9,9 +9,11 @@ approaches in there were built, tested and removed.
 
 Scenarios are the spec. Implementing a feature means making its scenarios
 true; "done" means someone ran them against the real node, not that they
-compile. They are **documentation, not an executable suite** — there is no
-`cucumber-rs` in the tree, and whether there should be is Q31.1 below rather
-than a given.
+compile. They are documentation **today**, and that is the thing being
+changed: **F35 makes them run.** Until it lands there is no `cucumber-rs` in
+the tree and nothing in this file is executed — a scenario is true because
+someone said so, which is why so many of them carry a `#` note about what
+was actually measured.
 
 `#` comments inside a feature carry its **open questions**. They are asked
 one at a time and the answers land in `DECISIONS.md`, per *How to work on a
@@ -37,23 +39,25 @@ a replacement for Admin: a guest's logs, its shell, and its options.
 
 ## v1 — what's left
 
-Two features, F12 and F20, seven scenarios between them:
+**One feature, F12, with two scenarios left.** F20 shipped — the icon was
+seen correct on a real dock on 2026-10-24 and its block is retired to
+`DECISIONS.md`.
 
-- **Green (2).** The two `.desktop` files agree on the window class; the
-  rasters are regenerated from the SVG.
-- **Waiting on one look at a dock (2).** F12's "the taskbar shows the app's
-  icon" and F20's "every part of the mark is visible". Same look settles
-  both, and it needs only a local install — not the release. In progress:
-  the dock entry integrated from the v1.0 AppImage was still showing the
-  pre-fix icon on 2026-10-23, so its 256px raster was replaced by hand with
-  the current one to make the look testable.
-- **Waiting on the release (4).** The AppImage starting, `sha256sum -c`,
-  `makepkg -si`, and the stale-entry question (Q12.2) all describe an
-  artifact that does not exist yet.
+Four of F12's six scenarios are green: both `.desktop` files agree on the
+window class, `sha256sum -c` reports OK on the published v1.0.1 asset,
+`makepkg` builds the package from the release tarball after the `!lto` fix,
+and the stale-dock-entry question (Q12.2) is answered by documenting the
+cleanup rather than fixing a file we never write.
 
-So **v1 cannot be fully green before the release; the release is what makes
-those three runnable.** Pushing `v1.0.1` is a step *in* F12, not something
-that waits on it.
+**What is left is not code — it is two things to run by hand:**
+
+- `makepkg -si` on this machine. Everything up to packaging is proven; only
+  the `-i` half is unrun, and it is what installs `pve-desk.desktop`, so it
+  closes the window-class scenario too — the Wayland `app_id` is measured as
+  `pve-desk` and matches that entry's basename exactly.
+- The AppImage started on a **second machine** — this one has Rust and glibc
+  2.44, so it cannot be the test. A VM on the node is the cheapest way to
+  get one.
 
 ```gherkin
 @v1 @wip
@@ -89,17 +93,19 @@ Feature: Packaging and release (F12)
     # a relative path to WebKitNetworkProcess, and run whole it produced no
     # X11 window to find. Inconclusive, not a failure.
 
+  @done
   Scenario: sha256sum -c succeeds on the file as downloaded
     Given the .sha256 published beside the AppImage
     When I run sha256sum -c on it in the directory I downloaded to
     Then it reports OK
-    # Reproduced against the published v1.0 asset on 2026-10-23:
-    #   sha256sum: src-tauri/target/release/bundle/appimage/
-    #   pve-desk_1.0.0_amd64.AppImage: No such file or directory
-    # It was built before 97a1fcc and records the build path, so the command
-    # README.md:114 gives cannot find the file. The hash itself matches
-    # GitHub's digest — the binary is sound, the filename is not. 97a1fcc
-    # fixes it but has never run on a tag; v1.0.1 is that run.
+    # PASSES as of v1.0.1 (2026-10-23). Both assets were downloaded fresh
+    # and the command README.md gives was run verbatim:
+    #   pve-desk_1.0.1_amd64.AppImage: OK
+    # The published file now names the bare filename, not the build path.
+    # History: v1.0's asset was built before 97a1fcc and recorded the build
+    # path, so the same command failed with "No such file or directory"
+    # while the hash itself matched GitHub's digest. v1.0.1 was the run that
+    # proved the fix.
 
   Scenario: The desktop entry groups the window under its own icon
     Given packaging/pve-desk.desktop declares StartupWMClass=pve-desk
@@ -107,9 +113,22 @@ Feature: Packaging and release (F12)
     Then the two strings match
     And the taskbar shows the app's icon rather than a generic one
     # The strings match as of 2026-10-23: xprop -name pve-desk WM_CLASS
-    # reports "pve-desk", "Pve-desk" (Q12.1 settled, see DECISIONS.md). The
-    # taskbar half is still unrun — it needs an X11 taskbar, and this
-    # machine has no X11 session installed, only XWayland.
+    # reports "pve-desk", "Pve-desk" (Q12.1 settled, see DECISIONS.md).
+    # The taskbar half was SEEN on 2026-10-24: the correct pale icon showed
+    # in the Plasma panel at login, and the raster that resolved was hash-
+    # identical to src-tauri/icons/icon.png, so it is the current mark and
+    # not the stale one photographed a day earlier.
+    # But that look does not prove THIS scenario's Given. The entry
+    # installed here is the AppImage's integrated
+    # pve-desk_1.0.0_amd64.desktop, not packaging/pve-desk.desktop, and the
+    # running window is Wayland-native (xprop -name finds nothing without a
+    # forced GDK_BACKEND=x11), so StartupWMClass played no part in it.
+    # The Wayland app_id is now measured and is also "pve-desk" (KWin
+    # script, see DECISIONS.md). Wayland matches app_id against a desktop
+    # file BASENAME, so pve-desk.desktop — what the Arch package installs —
+    # matches exactly, while a versioned AppImage basename cannot. So this
+    # scenario closes with makepkg -si below, on the file it actually
+    # names; nothing further is needed on the icon itself.
 
   Scenario: The AppImage and the Arch package agree on the window class
     Given the AppImage ships a .desktop Tauri generates, not packaging/'s
@@ -123,21 +142,28 @@ Feature: Packaging and release (F12)
     # xdg-shell app_id, and StartupWMClass is only the X11 fallback — so
     # both files agreeing does not by itself prove the dock groups it.
 
-  Scenario: Installing a new AppImage does not leave the old one in the dock
+  @done
+  Scenario: A stale AppImage dock entry has a documented cleanup
     Given a desktop entry integrated from a previous AppImage
-    When I integrate the AppImage from the next release
-    Then the dock shows one pve-desk entry, not one per version
-    # Found 2026-10-23 and unsolved. AppImage desktop integration names both
-    # files after the versioned filename — ~/.local/share/applications/
-    # pve-desk_1.0.0_amd64.desktop and icons/.../pve-desk_1.0.0_amd64.png —
-    # so v1.0.1 will add a second entry beside the first rather than replace
-    # it, and the stale one keeps the old icon and an Exec pointing at an
-    # AppImage that may be gone. The Arch package does not have this problem:
-    # it installs unversioned pve-desk.desktop and pve-desk.png.
-    # Q12.2 Is this ours to fix at all? It is appimaged/the integration
-    #   prompt doing the naming, not our bundle. Options: document the
-    #   stale-entry cleanup in README, or ship nothing and let AppImage
-    #   users live with it.
+    When I look for how to get rid of it
+    Then README's AppImage section names the two files to delete
+    # Found 2026-10-23, and narrower than it first looked. The integrated
+    # entry is named after the versioned filename — ~/.local/share/
+    # applications/pve-desk_1.0.0_amd64.desktop and icons/.../
+    # pve-desk_1.0.0_amd64.png — and it kept the pre-fix icon and an Exec
+    # pointing at the v1.0 AppImage, which is how a stale icon came to be
+    # photographed as if it were the fix.
+    # But running the published v1.0.1 AppImage did NOT create a second
+    # entry: integration is done by appimaged or an AppImageLauncher prompt,
+    # not by our bundle, so whether a release ever doubles up depends on how
+    # the user integrates it. Unreproduced, so do not assume it.
+    # The Arch package has no such problem: unversioned pve-desk.desktop and
+    # pve-desk.png, replaced in place on upgrade.
+    # Decided (Q12.2, 2026-10-24): not ours to fix in the bundle, ours to
+    #   document. We cannot rename an entry appimaged writes, and the
+    #   doubling-up was never reproduced — but a lingering entry with a dead
+    #   Exec and the pre-fix icon is a real trap, so README's AppImage
+    #   section names the two files to delete. See DECISIONS.md.
 
   Scenario: The Arch package builds from the release tarball
     Given packaging/arch/PKGBUILD
@@ -145,52 +171,30 @@ Feature: Packaging and release (F12)
     Then the source tarball downloads
     And cargo build --release runs and the tests pass
     And the binary, the .desktop entry, three icon sizes and the licence install
-    # Failed at the download under v1.0: pkgver=1.0.0 asked for
-    # v1.0.0.tar.gz, a 404, because the only tag was v1.0 — which extracts to
-    # pve-desk-1.0 while the PKGBUILD cds into pve-desk-1.0.0. pkgver is 1.0.1
-    # now; it resolves as soon as the v1.0.1 tag is pushed, not before.
-```
-
-```gherkin
-@v1 @unverified
-Feature: An app icon that survives a dark theme (F20)
-  As someone with a dark panel and a dark tray
-  I want the whole icon to be visible
-  So that pve-desk is findable in a dock
-
-  # Was: in src-tauri/icons/icon.svg the X carried fill:#e57000 while the top
-  # and bottom chevrons carried no fill at all and defaulted to black, so on
-  # a dark background only the orange X showed. Fixed — they are #f2f2f2 now
-  # and the five tracked rasters were regenerated with `cargo tauri icon`.
-  # Decided: an explicit light fill on the chevrons, not a backplate. One
-  #   attribute, the mark keeps its shape and its transparent background,
-  #   and a transparent glyph sits better in a tray than a plate does. The
-  #   cost is accepted: on a light desktop the chevrons go faint and the
-  #   orange X carries the mark. F12 (packaging) and F10 (tray) ship this file.
-
-  Scenario: Every part of the mark is visible on a dark background
-    Given src-tauri/icons/icon.svg
-    When the icon is drawn on a dark panel or a dark tray
-    Then both the orange chevrons and the pale ones read clearly
-    And on a light desktop the orange carries the mark
-    # Checked by compositing 128x128.png over #1c1c1c, #2e3436 and #ffffff:
-    # both halves show on the two dark grounds, and #f2f2f2 goes faint on
-    # white — the trade-off the fill was chosen with.
-    # All that is left is one look at a real dock. That does NOT need the
-    # release: copying packaging/pve-desk.desktop and the three icon files
-    # into ~/.local/share is enough to see it, and it is the same look that
-    # settles F12's "the taskbar shows the app's icon rather than a
-    # generic one". A tray needs F10, which is @later — out of v1's scope.
-
-  Scenario: The raster icons are regenerated from the source
-    When icon.svg changes
-    Then tauri icon is re-run
-    And the PNGs and the .ico under src-tauri/icons are rebuilt from it
-    # Passes: `cargo tauri icon` was re-run from the SVG on 2026-10-23 and
-    # all five tracked rasters changed (commit 4dc4205). It was generated
-    # into a temp dir and copied back selectively, so the .icns, the Windows
-    # Store logos and the Android/iOS sets it also emits stayed out of a
-    # tree that never carried them.
+    # The 404 is fixed: with v1.0.1 pushed, pve-desk-1.0.1.tar.gz downloads
+    # and extracts to the directory the PKGBUILD expects.
+    # But the build then FAILS, measured 2026-10-23 by running makepkg
+    # against the published tarball. Everything compiles; linking the
+    # binary dies with a dozen undefined ring_core_0_17_14__* symbols
+    # (aes_nohw_encrypt, x25519_sc_reduce, CRYPTO_memcmp, ...) and
+    # "A failure occurred in build()", exit 4.
+    # Cause: makepkg.conf ships OPTIONS=(... lto ...) with
+    # LTOFLAGS="-flto=auto", so ring's build script compiles its C sources
+    # into GCC GIMPLE objects. rust-lld cannot read those, so every C
+    # symbol in libring.a is undefined at link time. Not a toolchain
+    # mismatch — RUSTUP_TOOLCHAIN=stable resolves to the same 1.97.1 the
+    # repo pins.
+    # FIXED and re-measured the same day: options=(!lto) in the PKGBUILD
+    # (what Rust packages on Arch conventionally carry) and the whole
+    # scenario passes — tarball downloads, release build links, check()
+    # reports 31 passed, and the package carries usr/bin/pve-desk,
+    # pve-desk.desktop, 32x32 + 128x128 + scalable icons and the LICENSE.
+    # "Finished making: pve-desk 1.0.1-1", exit 0.
+    # Note the v1.0.1 tarball still contains the pre-fix PKGBUILD. That is
+    # harmless: the PKGBUILD is used from the repo or the AUR, and it pulls
+    # the tarball by version — so no re-tag is needed.
+    # Not run: makepkg -si. The -i half installs system-wide and was left
+    # to the user; everything up to packaging is proven.
 ```
 
 ---
@@ -201,6 +205,16 @@ The local view stops being "the guest list" and becomes **Home**: the place
 you land, that answers the routine questions without a trip to Admin. The
 performance work is in the same pass because the list is what gets slower as
 Home grows.
+
+**F35 leads the pass**, because it changes how every other feature here is
+judged: "someone ran the scenarios" becomes "the suite runs them". It also
+reverses a decision — see *The scenarios become executable* in
+`DECISIONS.md`.
+
+F31 to F34 are the same pass seen from the other side: how a row *reads*.
+A status light instead of a word, RAM in a unit that suits the number, a
+type you recognise without reading it, and Log out in the bar that is always
+on screen rather than in a header the admin panel hides.
 
 ```gherkin
 @v2 @todo
@@ -440,6 +454,237 @@ Feature: Favourites pinned to the top (F11)
     Then that guest is not pinned
 ```
 
+```gherkin
+@v2 @todo @open
+Feature: Status is a light, not a word (F31)
+  As someone scanning forty rows for the one that is down
+  I want status to read as a colour at a glance
+  So that "is anything off?" is answered without reading the column
+
+  # Today the cell holds the server's own word, coloured by `.st-running`
+  # (green) and `.st-stopped` (grey), and anything else is left plain. This
+  # asks for a small light instead: green running, red stopped, amber
+  # starting.
+  # Amber has no source yet. `/cluster/resources?type=vm` reports `running`
+  # and `stopped`, plus `unknown` for a guest on a node that is down; it is
+  # not known to publish a transitional state, so "starting" would have to
+  # come from this app's own in-flight knowledge — the `busy` set, and the
+  # reads at +0s and +3s after a power action. Check the API viewer before
+  # building either reading.
+  # Q31.1 Is amber "the node says starting", or "this app has a start in
+  #   flight and the status has not caught up"? The second is buildable
+  #   today; the first may not exist.
+  # Q31.2 Does the word stay beside the light, or does the light replace it?
+  #   Colour alone is not a status, and red/green is the one pair a
+  #   colour-blind reader cannot separate — if the word goes, the light
+  #   needs a title and an accessible name.
+  # Q31.3 What colour is a status that is none of the three — paused,
+  #   suspended, unknown? Grey comes free once stopped turns red.
+
+  Scenario: A running guest reads green
+    Given Home is listing a running guest
+    When the row is drawn
+    Then its status is a small green light
+
+  Scenario: A stopped guest reads red
+    Given Home is listing a stopped guest
+    When the row is drawn
+    Then its status is a small red light
+    And nothing about the row says it failed — stopped is a normal state
+
+  @open
+  Scenario: A guest coming up reads amber
+    Given I have pressed Start on a stopped guest
+    When the list is re-read before the node reports it running
+    Then that guest's light is amber rather than red
+    And it turns green on the read that reports it running
+    # Depends on Q31.1. If amber is local, this is the `busy` set plus the
+    # 3s second read, and the light is amber for as long as the app is
+    # waiting rather than for as long as the guest is booting.
+
+  Scenario: A status the app does not know is not dressed as one it does
+    Given a guest reporting "unknown" because its node is down
+    When the row is drawn
+    Then its light is not green, red or amber
+    And the status is still legible as text
+
+  Scenario: The colour is not the only thing carrying the status
+    Given a row with a light of any colour
+    When I hover it, or read the row with a screen reader
+    Then the status is available as words
+
+  Scenario: The light survives a diff-rendered refresh
+    Given F22 has landed and rows are patched rather than rebuilt
+    When a guest's status changes
+    Then its light changes with it
+```
+
+```gherkin
+@v2 @todo
+Feature: RAM reads in the unit it deserves (F32)
+  As someone looking at a container with 512 MiB
+  I want small numbers in MiB
+  So that the column is not a row of near-identical 0.5s
+
+  # fmtMem() divides by 1024**3 and prints one decimal, so everything under
+  # a gibibyte collapses towards "0.0 GiB" and "0.5 GiB". Under a GiB it
+  # should read MiB.
+  # Q32.1 Does the pair share a unit, or is each side scaled on its own?
+  #   "248 MiB / 2.0 GiB" is honest about both numbers; "0.2 / 2.0 GiB"
+  #   keeps the ratio readable, and the ratio is what the column is for.
+  # Q32.2 Decimals in MiB — "512 MiB" or "512.0 MiB"?
+  # Q32.3 A TiB step at the top as well, or is that a size this node does
+  #   not have?
+  # fmtMem is pure and would be a one-line unit test, but it is JS and
+  # there is no test runner in `ui/` — adding one is a dependency, so these
+  # are checked by eye unless the formatting moves into Rust.
+
+  Scenario: A container under a gibibyte reads in MiB
+    Given a container with 536870912 bytes of maxmem
+    When its row is drawn
+    Then its RAM reads "512 MiB", not "0.5 GiB"
+
+  Scenario: A gibibyte exactly reads in GiB
+    Given a guest with 1073741824 bytes of maxmem
+    When its row is drawn
+    Then its RAM reads in GiB
+    # The boundary belongs to GiB, so the MiB range tops out at 1023 MiB.
+
+  Scenario: Rounding does not invent precision
+    Given a guest with 1610612736 bytes of maxmem
+    When its row is drawn
+    Then its RAM reads "1.5 GiB"
+
+  Scenario: A guest with no figure to show still shows nothing
+    Given a stopped guest, which reports mem 0
+    When its row is drawn
+    Then its used RAM reads "–"
+    And its maxmem is still shown
+```
+
+```gherkin
+@v2 @todo @open @linux
+Feature: Log out moves to the top bar (F33)
+  As someone who logs out from whichever view is in front
+  I want Log out in the bar that is always on screen
+  So that it is not a button hiding behind the admin panel
+
+  # Log out is an HTML button in Home's header, beside Search and Refresh.
+  # The local webview is hidden outright while the admin panel is up
+  # (layout_admin), so from Admin the only way out is Guests first. The
+  # strip built in install_native_tabs has Admin then Guests packed left,
+  # and nothing on its right.
+  # Q33.1 Which side ends up with what? "Admin/Guests on the right" leaves
+  #   the left end for Log out — or does Log out sit outboard of the pair,
+  #   at the far right?
+  # Q33.2 A GTK button cannot run the page's teardown (clear the 30s timer,
+  #   clear the table and the search box, show the launcher). Does the
+  #   backend emit an event the page reacts to, the way the Guests button
+  #   emits "tab", or does it do the whole teardown itself and the page
+  #   merely follow? Architecture — ask before building.
+  # Q33.3 Greyed without a session, as Admin already is via
+  #   set_admin_tab_enabled? On the launcher it can only produce an error.
+  # Q33.4 Does this settle F21 Q21.2 as well? Both move page furniture into
+  #   the GTK shell, and the status line has the same "invisible while the
+  #   panel is up" problem.
+  # The strip is Linux-only (F14), so on Windows and macOS (F17) there is
+  # no bar to move it to and it stays in the page.
+
+  Scenario: Log out is reachable with the admin panel in front
+    Given a session is live and Admin is showing
+    When I look at the top bar
+    Then Log out is there and live
+    And I did not have to switch to Home to find it
+
+  Scenario: Logging out from Admin lands on the launcher
+    Given a session is live and Admin is showing
+    When I press Log out
+    Then the admin panel is hidden
+    And the 30s refresh has stopped
+    And the guest list and the search box are cleared
+    And the launcher is shown with "Logged out"
+
+  Scenario: Log out does nothing it cannot do
+    Given no session is live
+    When I look at the top bar
+    Then Log out is greyed, as Admin is
+
+  Scenario: The tab pair sits at the right of the bar
+    Given the app is running
+    When I look at the top bar
+    Then Admin and Guests are at its right-hand end
+    And they still read as one linked control
+
+  Scenario: Log out is in one place only
+    Given Log out is in the top bar
+    When I look at Home's header
+    Then it offers Search and Refresh and no Log out
+
+  @windows
+  Scenario: A platform without the bar still has a Log out
+    Given a build for Windows or macOS, which has no GTK strip
+    When a session is live
+    Then Log out is still reachable from the page
+```
+
+```gherkin
+@v2 @todo @open
+Feature: A guest's type is an icon beside its name (F34)
+  As someone reading a mixed list of VMs and containers
+  I want the type where my eye already is
+  So that the kind of thing a row is costs no column
+
+  # Type is its own column between Name and Node, holding "VM" or "LXC"
+  # from kindLabel(). matches() searches that text, so typing "lxc" filters
+  # the list today — whatever replaces the column must not quietly lose
+  # that. Only `qemu` and `lxc` can appear: the list is
+  # `/cluster/resources?type=vm`.
+  # The Proxmox web UI draws these as Font Awesome 4 glyphs — a monitor for
+  # a QEMU VM and a cube for a container, from memory. Confirm against the
+  # pve-manager source before copying either.
+  # Q34.1 Where do the glyphs come from? `ui/` is three files and no build
+  #   step, so: inline the two SVG paths in the page (no new asset, no
+  #   build, the look is ours to keep in step); vendor a Font Awesome
+  #   subset (a fourth asset in `ui/`, plus CC BY / OFL attribution to
+  #   carry); or a Unicode stand-in (free, and renders differently on every
+  #   machine). I would inline the SVG. Architecture — a new asset and its
+  #   licence are not a naming choice.
+  # Q34.2 Does the Type column go, or does the icon sit in the Name cell
+  #   and the column stay? If the column goes, the type is no longer text
+  #   on screen and needs a title and an accessible name.
+  # Q34.3 Is there a fallback glyph for a type that is neither, or is that
+  #   a case the `?type=vm` filter makes impossible?
+
+  Scenario: A VM is marked as a VM
+    Given Home is listing a QEMU guest
+    When the row is drawn
+    Then its type icon is immediately after its name
+
+  Scenario: A container is marked as a container
+    Given Home is listing an LXC guest
+    When the row is drawn
+    Then its icon is the container one, not the VM one
+    And the two are distinguishable at the size they are drawn
+
+  Scenario: Searching by type still works
+    Given a list of VMs and containers
+    When I type "lxc" into the search box
+    Then only containers are listed
+    # True today because matches() searches kindLabel(). It has to stay
+    # true even when no cell holds that text.
+
+  Scenario: The type is readable without seeing the icon
+    Given a row with a type icon
+    When I hover it, or read the row with a screen reader
+    Then it says "VM" or "LXC"
+
+  Scenario: The icon costs no build step
+    Given the icons have landed
+    When the frontend is loaded
+    Then it is still three files of plain HTML, CSS and JS
+    And nothing is fetched from the network to draw a row
+```
+
 ---
 
 ## v3 — Home instead of Admin, first pass
@@ -676,7 +921,9 @@ Feature: System tray (F10)
   #   three as Home? A tray with a force-stop and no confirmation is a
   #   different risk from a button in a table (Q6.2).
   # Needs trayIcon in tauri.conf.json (v2 renamed it from systemTray) and
-  # ships src-tauri/icons/icon.svg, so F20 lands first.
+  # ships src-tauri/icons/icon.svg. F20 is done, so the icon it needs is
+  # already dark-theme safe; a tray is the one place that fix has not been
+  # looked at, since F20's dock sighting is not a tray.
 
   Scenario: Starting a guest from the tray
     Given a session is live and a guest is pinned
