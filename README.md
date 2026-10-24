@@ -81,9 +81,11 @@ Honest limits, so you can judge it before installing:
   (only tested with the threshold lowered to seconds) and running two saved
   connections side by side.
 
-[ROADMAP.md](ROADMAP.md) carries the rest as Gherkin scenarios — including a
-"Shipped but unproven" block of acceptance criteria nobody has run yet. Treat
-that as the boundary of what works.
+The [open issues](https://github.com/AdamBougher/pve-desk/issues) carry the
+rest as Gherkin scenarios — including
+[#30 Shipped but unproven](https://github.com/AdamBougher/pve-desk/issues/30),
+acceptance criteria nobody has run yet. Treat that as the boundary of what
+works.
 
 ## Requirements
 
@@ -249,9 +251,11 @@ will show you the new one to confirm.
 
 The repo carries its working notes, which is unusual enough to explain:
 
-- [ROADMAP.md](ROADMAP.md) — outstanding work only, written as Gherkin
-  features and scenarios across three passes (v1, v2, v3), plus the
-  scenarios that have never been run. A finished feature is deleted from it.
+- [GitHub issues](https://github.com/AdamBougher/pve-desk/issues) —
+  outstanding work only, one issue per feature, the body written as Gherkin
+  scenarios. A finished feature is closed.
+- [ROADMAP.md](ROADMAP.md) — the map of which issues sit in which pass (v1,
+  v2, v3, later), and nothing else.
 - [DECISIONS.md](DECISIONS.md) — why it's built this way, and what was tried
   and failed. Several ideas in there were built, tested and removed.
 - [CLAUDE.md](CLAUDE.md) — the working agreement the AI model operates under,

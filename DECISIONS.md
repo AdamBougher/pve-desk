@@ -5,8 +5,9 @@ failed. **Read this before changing auth, TLS, the admin panel, the refresh
 model or the Linux rendering setup** — several of the ideas below were
 implemented, tested against the real node, and then removed.
 
-Companion files: `ROADMAP.md` is outstanding work, `README.md` is what the app
-does today. Question numbers (Q1.1, Q3.3 …) are kept because source comments
+Companion files: outstanding work is the
+[GitHub issues](https://github.com/AdamBougher/pve-desk/issues) with
+`ROADMAP.md` as their map, and `README.md` is what the app does today. Question numbers (Q1.1, Q3.3 …) are kept because source comments
 cite them.
 
 ---
@@ -158,7 +159,7 @@ won.
   second POST through.
 - **Two refreshes per action, immediately and after 3s.** Proxmox answers with
   a task id and works on it afterwards, so `/cluster/resources` lags the
-  request. The 3s is a guess — see Known gaps in `ROADMAP.md`.
+  request. The 3s is a guess, never measured.
 
 ### Removing a saved connection (F19, 2026-10-22)
 Answers **Q16.5** and the **"Forget this login"** question together; both had
@@ -602,6 +603,44 @@ the measurements that used to pad that file are in the sections above.
 - **Version passes replaced the old "v1 / Later" split**: v1 is the shipped
   app plus packaging, v2 is performance and the Home view, v3 is Home as a
   first-pass replacement for Admin (logs, shell, options).
+
+### The features moved to GitHub issues (2026-10-24)
+The 21 outstanding `Feature:` blocks and the "Shipped but unproven" block left
+`ROADMAP.md` and became issues #9–#30 in `AdamBougher/pve-desk`, one per
+feature. Asked for by the user while setting up the mattpocock engineering
+skills, which key off an issue tracker: `/triage`, `/to-spec`,
+`/implement-spec` and `/code-review` all read a ticket, and there was nothing
+for them to read.
+
+- **Full move, not a mirror.** The whole Gherkin block is the issue body,
+  verbatim in a ```gherkin fence — narrative, `#` open questions, scenarios
+  and the measurement notes. Chosen over keeping the spec in the file with
+  issues as a thin queue, and over mirroring both, which would have drifted
+  within a week.
+- **The cost, accepted knowingly:** the spec is no longer greppable or
+  diffable. Those 1060 lines held measurements (`3.005s / 401` vs `8ms / 200`,
+  `xprop` reporting `"pve-desk", "Pve-desk"`) that one `grep` used to find and
+  `git log` used to track. Now it is `gh issue list --json body` and the
+  issue's own edit history.
+- **`ROADMAP.md` survives as the map**, 106 lines: the passes, which issues
+  are in them, and the F-number rule. Not the spec.
+- **F-numbers are not issue numbers** and never will be. The `F<n>` is
+  permanent and is how features cite each other; the `#number` is only for
+  links. F12 is issue #9.
+- **Labels replaced the tags** one for one — pass, state and qualifier. The
+  five canonical triage labels exist but were deliberately **not** applied
+  during the migration: these features already carry specs and are not
+  incoming requests awaiting evaluation.
+- **F35 was deleted, not migrated.** `ROADMAP.md` cited it twice as the
+  feature leading v2 ("makes the scenarios run") and pointed at a *The
+  scenarios become executable* section here that does not exist. There was no
+  `Feature:` block for it anywhere and no spec to migrate. Since the section
+  above already records that wiring up `cucumber-rs` is an open question
+  rather than a decision, the user chose to drop both references. If it comes
+  back it needs a spec first.
+- **The scenarios are still not a suite.** The move changed where they live,
+  not what they are. Nothing executes them; "done" still means someone ran
+  them against the real node by hand.
 
 ### Linux rendering (revised 2026-10-21)
 `lib.rs` defaults to `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`, keeping WebKit's

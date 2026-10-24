@@ -5,14 +5,17 @@ removable), the embedded Proxmox web UI (admin panel) signed in and ready, and
 a VM/container list with start / shutdown / stop on each row. SPICE is written
 but unproven.
 
-Three files, each with one job. Read the first two before starting anything:
+Where things live, each with one job. Read the issue and `DECISIONS.md`
+before starting anything:
 
-- `ROADMAP.md` — **outstanding work only**, written as Gherkin: a `Feature:`
-  block per outstanding feature, `Scenario:` blocks as its acceptance
-  criteria, tags for the pass (`@v1` `@v2` `@v3` `@later`) and the state
-  (`@todo` `@wip` `@unverified` `@blocked` `@open`), and `#` comments
-  carrying its open questions. The scenarios are the spec, not an executable
-  suite. A finished feature is deleted from it.
+- **GitHub issues** — **outstanding work only**, one issue per feature,
+  titled `F<n> — <name>`. The body is the spec, written as Gherkin:
+  `Scenario:` blocks as its acceptance criteria and `#` comments carrying its
+  open questions. Labels give the pass (`v1` `v2` `v3` `later`) and the state
+  (`todo` `wip` `unverified` `blocked` `open`). The scenarios are the spec,
+  not an executable suite. A finished feature is closed. Conventions:
+  `docs/agents/issue-tracker.md`. `ROADMAP.md` is only the map of which
+  issues are in which pass.
 - `DECISIONS.md` — why the app is built this way, and **what was already
   tried and failed**. Check it before re-proposing something; several ideas
   in there were built, tested and removed.
@@ -157,39 +160,43 @@ If you're unsure whether something counts as architecture, ask.
 
 ## How to work on a feature
 
-1. Read the feature's block in `ROADMAP.md` — the scenarios are what it has
-   to do, the `#` comments are what is still undecided.
+1. Read the feature's issue — `gh issue view <n>`. The scenarios are what it
+   has to do, the `#` comments are what is still undecided. `ROADMAP.md` maps
+   F-numbers to issue numbers; the F-number in the title is permanent and is
+   not the issue number.
 2. Ask its open questions **one at a time**. Wait for each answer before the
    next question. Don't stack questions whose answers depend on each other.
-3. For each answer: record it in `DECISIONS.md` with its reasoning, and in
-   `ROADMAP.md` turn the question's comment into the scenario it implies, or
-   delete it if it decided nothing new.
+3. For each answer: record it in `DECISIONS.md` with its reasoning, and edit
+   the issue body so the question's comment becomes the scenario it implies —
+   or delete the comment if it decided nothing new.
 4. Write the reasoning from "Reason before you code". Ask any architecture
    questions it raises.
 5. Implement it. Keep changes scoped to that feature — make its scenarios
    true and don't invent scenarios it didn't have.
 6. Run fmt / clippy / test.
-7. Update the feature's tags (`@todo` → `@wip`, and `@unverified` once the
-   code is there but nobody has run the scenarios).
+7. Update the issue's state label (`todo` → `wip`, and `unverified` once the
+   code is there but nobody has run the scenarios). One state label at a
+   time; `gh issue edit <n> --add-label ... --remove-label ...`.
 8. Say which scenarios you could NOT run (anything needing a live Proxmox
    node, a GUI click, or hardware you don't have).
 
 ### When it's finished
 
-Don't leave a feature whose scenarios all pass sitting in `ROADMAP.md`.
-Finishing includes retiring the block, in the same commit as the code:
+Don't leave a feature whose scenarios all pass sitting open. Finishing
+includes retiring the issue, in the same commit as the code:
 
-- **Delete the `Feature:` block from `ROADMAP.md`.** Anything still open about
-  it — a question you deferred, a scenario nobody ran — moves to that file's
-  "Shipped but unproven" feature as an `@unverified` scenario instead.
+- **Close the issue** (`gh issue close <n> --comment "..."`), and delete its
+  row from `ROADMAP.md`. Anything still open about it — a question you
+  deferred, a scenario nobody ran — moves to the "Shipped but unproven"
+  issue as an `unverified` scenario instead.
 - **Move its decisions to `DECISIONS.md`**: the answers to its questions with
   the reasoning, and anything you tried that didn't work, with the
   measurement that killed it. Not a build log — `git log` has that.
 - **Update `README.md`** if the feature changed what the app does.
 
 "Finished" means its scenarios were run, not that it compiled. If they can
-only be run against a live node you don't have, the feature stays
-`@unverified` in `ROADMAP.md` and I'll tell you when I've confirmed it.
+only be run against a live node you don't have, the issue stays open with the
+`unverified` label and I'll tell you when I've confirmed it.
 
 ## Testing reality
 
@@ -204,3 +211,22 @@ feature is untested — don't call it working. Unit-test the pure parts
   on the previous result, do one, report, then continue.
 - No praise or flattery. State facts. If I'm wrong, say so directly.
 - Be honest about uncertainty: say "I don't know" or "I haven't verified this".
+
+## Agent skills
+
+### Issue tracker
+
+GitHub issues in `AdamBougher/pve-desk`. The issue body is the Gherkin spec
+and the title carries the permanent `F<n>` number. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage labels, plus the old roadmap tags as labels — pass
+(`v1`…`later`), state (`todo` `wip` `unverified` `blocked` `open`) and
+qualifier (`perf` `linux` `windows`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context, and decisions live in `DECISIONS.md` rather than
+`docs/adr/`. See `docs/agents/domain.md`.
