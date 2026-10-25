@@ -45,7 +45,9 @@ Windows and wanted the same experience on Linux, so I built one.
   panel.
 - **Guest list.** A summary of every VM and container — status, node, VMID,
   tags — refreshed every 30 seconds, with a search box over name, VMID, node
-  and tag. Templates are hidden.
+  and tag. Templates are hidden. The 30s poll pauses whenever nobody can see
+  the result — switched away to Admin, the window unfocused, or minimised —
+  and catches up at once when Home is back in front and focused.
 - **Power actions on each row.** Start a stopped guest, Shutdown or force-Stop
   a running one; only the forced stop asks first, since it is the one that can
   lose unflushed writes. Buttons follow the guest's status, so there is no

@@ -105,6 +105,26 @@ pub fn run() {
             commands::logout,
             commands::set_status,
         ])
+        // F23: the frontend pauses its 30s guest-list poll when the main
+        // window loses focus or is minimised. Filtered to "main" specifically
+        // — this fires for every window, and on non-Linux Admin is its own
+        // separate WebviewWindow with its own independent focus state. Two
+        // windows trading focus could otherwise emit in either order; main's
+        // own Focused(false) still fires deterministically whenever Admin's
+        // separate window takes focus instead, since losing focus to any
+        // other window is still main losing focus. Verified empirically
+        // (not assumed) that minimising also fires Focused(false), the same
+        // as any other focus loss — see DECISIONS.md, "Polling stops when
+        // nothing is watching". No platform cfg: Focused(bool) is real on
+        // every desktop target, unlike the GTK-only tab strip.
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::Focused(focused) = event {
+                let _ = tauri::Emitter::emit(window, "window-focus", *focused);
+            }
+        })
         .setup(|app| {
             // F14: on Linux the tab bar is a native widget, because GTK can
             // neither position a child webview nor cap one's height. See

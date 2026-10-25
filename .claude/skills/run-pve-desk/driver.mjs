@@ -114,6 +114,24 @@ window.__TAURI__ = {
 };
 window.__emit = (name, payload) =>
   (window.__LISTENERS[name] || []).forEach((cb) => cb({ payload }));
+
+// F23: main.js's refreshTimer is a plain top-level let in a classic script,
+// so it is not reachable from outside as window.refreshTimer — this wraps
+// the real timer functions it calls instead, to observe start/stop without
+// needing to read the variable itself. Still calls through for real, so the
+// 30s poll genuinely runs/stops; this only adds a log.
+window.__TIMERS = [];
+const __realSetInterval = window.setInterval.bind(window);
+const __realClearInterval = window.clearInterval.bind(window);
+window.setInterval = (fn, ms) => {
+  const id = __realSetInterval(fn, ms);
+  window.__TIMERS.push({ op: "start", id });
+  return id;
+};
+window.clearInterval = (id) => {
+  window.__TIMERS.push({ op: "stop", id });
+  return __realClearInterval(id);
+};
 `;
 
 // ---------------------------------------------------------------- webdriver
@@ -370,6 +388,21 @@ async function smoke() {
   await waitUntil(async () => (await text("#connections li")).includes("Reachable"), "probe");
   check("probe reported reachable", (await text("#connections li")).includes("Reachable"));
 
+  // F23: before any session exists, toggling window focus must not start
+  // polling — found by tracing through the state machine, not a failing
+  // test. "window-focus" is a global listener with no session gate of its
+  // own; only $("main").hidden stops it from firing refresh() against
+  // nothing here, repeatedly, every 30s, on the plain launcher screen.
+  await exec(`window.__TIMERS = []; return true`);
+  const beforeLauncherFocus = (await calls()).filter((c) => c.cmd === "list_guests").length;
+  await emit("window-focus", false);
+  await emit("window-focus", true);
+  check(
+    "focus changes on the launcher do not start polling",
+    (await exec(`return window.__TIMERS.length`)) === 0 &&
+      (await calls()).filter((c) => c.cmd === "list_guests").length === beforeLauncherFocus,
+  );
+
   console.log("certificate refusal");
   // api.rs:93 builds the fingerprint as bare lowercase hex with no
   // separators; askTrust() in main.js is what groups it into pairs for
@@ -425,6 +458,54 @@ async function smoke() {
     )) === 0,
   );
 
+  console.log("diff rendering (F22)");
+  // Tag two elements from the outside, on the real DOM nodes rather than
+  // anything the app itself tracks, so a later check can tell "same node,
+  // patched in place" from "replaced" without trusting the app's own state.
+  await exec(`
+    var truenas = [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("truenas"));
+    truenas.dataset.probe = "untouched";
+    var docker = [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
+    docker.querySelector("button").dataset.probe = "original-button";
+  `);
+
+  // An identical refresh: same fixture, re-fetched. Click Refresh directly
+  // rather than wait 30s for the timer.
+  await click("#refresh");
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh to finish");
+  check(
+    "identical refresh: row not replaced",
+    (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("truenas")).dataset.probe`)) === "untouched",
+  );
+  check(
+    "identical refresh: power button not rebuilt",
+    (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).querySelector("button").dataset.probe`)) === "original-button",
+  );
+
+  // Now change ONE guest (docker: stopped -> running) and refresh again.
+  await exec(`
+    var r = window.__RESPONSES.list_guests;
+    r.find(g => g.vmid === 101).status = "running";
+  `);
+  await click("#refresh");
+  await waitUntil(
+    async () =>
+      (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).textContent`)).includes("running"),
+    "status cell to update",
+  );
+  check(
+    "single guest change: its status and buttons updated",
+    (await exec(
+      `var r=[...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
+       var b=[...r.querySelectorAll("button")].map(x=>x.textContent.trim());
+       return r.textContent.includes("running") && b.join(",")==="Shutdown,Stop"`,
+    )),
+  );
+  check(
+    "single guest change: unrelated row still untouched",
+    (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("truenas")).dataset.probe`)) === "untouched",
+  );
+
   console.log("hard rule: server text is not HTML");
   check("no injected element", (await exec(`return !!window.__XSS`)) === false);
   check(
@@ -437,10 +518,14 @@ async function smoke() {
   check("no img smuggled into the table", (await count("#guests img")) === 0);
 
   console.log("search");
+  // F22: filtering now toggles [hidden] on existing rows rather than
+  // removing them from the DOM, so a plain "#guests tr" count stays 4
+  // either way — check the VISIBLE count, which is the actual behaviour.
   await type("#search", "docker");
-  check("filtered to one row", (await count("#guests tr")) === 1);
+  check("filtered to one row", (await count("#guests tr:not([hidden])")) === 1);
+  check("non-matching rows still in the DOM, just hidden", (await count("#guests tr")) === 4);
   await type("#search", "");
-  check("filter cleared", (await count("#guests tr")) === 4);
+  check("filter cleared", (await count("#guests tr:not([hidden])")) === 4);
 
   console.log("force stop asks first");
   // F21: status() now also invokes set_status (mirrored to the native GTK
@@ -472,6 +557,46 @@ async function smoke() {
     "frontend sent no API path",
     !JSON.stringify(pa.args).includes("/api2/"),
   );
+
+  console.log("poll pause/resume (F23)");
+  // __TIMERS logs every real setInterval/clearInterval main.js's syncPolling
+  // makes (see the STUB above) — reset before each check so a fresh entry
+  // proves THIS event caused it, not something earlier in the run.
+  const resetTimers = () => exec(`window.__TIMERS = []; return true`);
+  const timerOp = async (op) => exec(`return window.__TIMERS.some(t => t.op === arguments[0])`, [op]);
+  const listGuestCalls = async () => (await calls()).filter((c) => c.cmd === "list_guests").length;
+
+  await resetTimers();
+  await emit("tab", "admin");
+  check("switching to Admin stops the timer", await timerOp("stop"));
+
+  await resetTimers();
+  const beforeHome = await listGuestCalls();
+  await emit("tab", "home");
+  check("switching back to Home refreshes at once", (await listGuestCalls()) === beforeHome + 1);
+  check("switching back to Home restarts the timer", await timerOp("start"));
+
+  await resetTimers();
+  await emit("window-focus", false);
+  check("losing window focus stops the timer", await timerOp("stop"));
+
+  // Still on Home, but unfocused: regaining focus alone should resume.
+  await resetTimers();
+  await emit("window-focus", true);
+  check("regaining focus while on Home resumes the timer", await timerOp("start"));
+
+  // Now the combined-state case: on Admin AND unfocused, then focus comes
+  // back while STILL on Admin. Must NOT resume — this is the AND, not OR.
+  await emit("tab", "admin");
+  await emit("window-focus", false);
+  await resetTimers();
+  await emit("window-focus", true);
+  check("regaining focus while on Admin does not resume the poll", (await exec(`return window.__TIMERS.length`)) === 0);
+
+  // Only once both conditions agree does it resume.
+  await resetTimers();
+  await emit("tab", "home");
+  check("switching to Home resumes once focus and tab both agree", await timerOp("start"));
 
   console.log("backend errors surface");
   await exec(`window.__FAIL.list_guests = "node said 596 no route to host"; return true`);

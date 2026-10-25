@@ -361,6 +361,91 @@ fires from a real, authenticated connect, and there is no `xdotool` on this
 machine to script a click as a substitute — both missing together, not a
 deliberate skip. See issue #10 for exactly what is left to check by hand.
 
+### The list redraws only what changed (F22, 2026-10-24)
+**Q22.1: full diff by vmid, patching only the cells that changed — not the
+smaller identical-payload skip.** The smaller option only closes one of the
+feature's four scenarios: a single guest changing status still forces a full
+rebuild under it, and typing in search still rebuilds the whole table either
+way. Diffing is what the typing and single-guest-change scenarios actually
+need, so it was the only option that makes the issue's own acceptance
+criteria true.
+
+**Row identity is vmid alone, not `busy`'s `node/vmid`.** Proxmox VMIDs are
+cluster-unique, and keying by vmid alone means a live-migrated guest patches
+in place — its node cell updates — rather than being deleted on its old key
+and recreated on a new one. `busy` keeps its existing `node/vmid` key
+unchanged: re-keying it was never required by this issue, and a guest
+mid-migration already loses track of its own busy state under the *current*
+code the same way, since `busy.has(guestKey(g))` is recomputed from whatever
+node the latest payload reports. Not a regression this feature introduces,
+and not this feature's job to fix.
+
+**Q22.2 was never really open.** The third scenario's own `Then` clause
+already says "the match test runs against precomputed text" — that's the
+acceptance criterion, not a question about one. Each row's haystack is
+computed once at row creation and recomputed only when a field it depends on
+(name, node, tags, kind) actually changes between refreshes.
+
+### Polling stops when nothing is watching (F23, 2026-10-24)
+**Q23.1: both tab switch and window focus/minimise, not tab switch alone.**
+Checked rather than assumed before committing to the bigger option: Tauri
+2.12.4's `WindowEvent` has no minimise-specific variant on desktop at all —
+`Suspended`/`Resumed` exist but are `#[cfg(mobile)]` only, confirmed by
+reading `tauri-runtime-2.12.2/src/window.rs`. Only `Focused(bool)` is real
+and desktop-available.
+
+Verified empirically before writing any real code, using raw X protocol
+calls (`python-xlib`) rather than mouse clicks — safe against a live desktop,
+deterministic unlike synthetic clicking. Built a throwaway diagnostic
+(`.on_window_event` printing every event to stderr), launched it, and:
+
+1. Moved input focus to the root window: `Focused(false)` fired.
+2. Restored focus to the app window: `Focused(true)` fired.
+3. Sent the ICCCM `WM_CHANGE_STATE` client message to iconify the
+   now-focused window: `Focused(false)` fired, `WM_STATE` genuinely went
+   to `3` (Iconic), confirming the iconify itself succeeded and that it was
+   the minimise — not a stray prior event — that produced the transition.
+
+So minimising a focused window reliably fires `Focused(false)` as a side
+effect of losing focus; a single `Focused(bool)` handler covers both halves
+of what was asked for. No separate GTK-level minimise hook needed — the
+diagnostic was reverted before the real implementation was written.
+
+**The handler filters to the main window's label (`"main"`), not every
+window.** `Builder::on_window_event` is global across all windows, and on
+non-Linux Admin is a *separate* `WebviewWindow` with its own independent
+focus state — unfiltered, two windows trading focus could emit two events in
+either order, leaving `ui/main.js`'s cached focus state matching whichever
+arrived last rather than reliably reflecting the main window specifically.
+Filtering to `"main"` sidesteps the ordering question entirely: when Admin's
+separate window takes focus, the main window loses it as an ordinary
+consequence of window-manager focus exchange, so its own `Focused(false)`
+still fires and is still the one signal this feature listens for. Unverified
+on non-Linux, since nothing here runs there, but the reasoning does not
+depend on anything Linux-specific.
+
+**Q23.2 was never really open**, the same way Q22.2 wasn't. The existing
+`"tab"` → `"home"` listener already called `refresh()` synchronously the
+moment the payload arrived, before this feature touched anything —
+"immediate" was already the behaviour. Restarting the interval alongside it
+reuses `startSession()`'s existing `refreshTimer ??= setInterval(...)`
+pattern rather than inventing a second one.
+
+**A real bug, caught by tracing state transitions before writing any test —
+not by one failing.** `onHomeTab` and `windowFocused` both default `true`,
+and `"window-focus"` is a global listener with no session gate of its own:
+it fires the moment the window's focus changes, including on the plain
+launcher before `connect()` has ever run. Without a third condition, toggling
+focus there would start the 30s poll calling `refresh()` against no session
+at all — failing every tick, cycling a "Refresh failed" status message for
+no reason, on a screen where no guest list exists to show. `$("main")`'s
+`hidden` state is the fix: already the exact signal `startSession()` and
+`clearGuests()` use for "a session is live, Home's data section is the one
+showing," not new state, just read a third time. Verified the fix is load-
+bearing, not cosmetic: reverted it, re-ran `driver.mjs smoke`, watched
+"focus changes on the launcher do not start polling" fail, restored it,
+watched it pass again.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is

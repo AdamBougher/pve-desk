@@ -594,6 +594,11 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
         {
             layout_admin(&app, true);
             set_main_title(&app, "Admin");
+            // F23: Home's poll pauses while nothing can see it. Non-Linux
+            // has no tab concept — Admin is its own window there, Home's
+            // window stays fully visible — so this is Linux-only like the
+            // title call beside it.
+            let _ = app.emit("tab", "admin");
         }
         #[cfg(not(target_os = "linux"))]
         if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
@@ -658,6 +663,7 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
             url.to_string(),
         )?;
         set_main_title(&app, "Admin");
+        let _ = app.emit("tab", "admin"); // F23: see the sibling call above.
     }
     #[cfg(not(target_os = "linux"))]
     webview.navigate(url)?;

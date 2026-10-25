@@ -16,11 +16,24 @@ const status = (msg) => {
 // The backend reports what it did with the node's TLS certificate (F3/F4).
 listen("admin-cert", (e) => status(`Admin panel: ${e.payload}`));
 
-// F2/Q2.2: the node stopped accepting the session and re-login failed too.
-// Go back to the launcher rather than retrying every 30s against a dead one.
+// F23: the native tab strip and the window's own focus state (Linux and
+// desktop generally, respectively) each drive one half of whether the poll
+// should run — see syncPolling() below. Both default true: the app always
+// opens on Home (F16/F21), and the window is assumed focused the moment the
+// script runs, which is the normal case; a wrong guess self-corrects on the
+// next real event either way.
+let onHomeTab = true;
+let windowFocused = true;
+
 // The native Home button switches in the backend; refresh what it reveals.
 listen("tab", (e) => {
-  if (e.payload === "home") refresh();
+  onHomeTab = e.payload === "home";
+  syncPolling();
+});
+
+listen("window-focus", (e) => {
+  windowFocused = e.payload;
+  syncPolling();
 });
 
 listen("session-lost", async (e) => {
@@ -43,6 +56,7 @@ let guests = [];
 function clearGuests() {
   guests = [];
   busy.clear();
+  rowsByKey.clear();
   $("guests").replaceChildren();
   $("search").value = "";
   $("count").textContent = "";
@@ -253,8 +267,34 @@ function startSession() {
   // F21: Home is where you land, not Admin — Q16.3's auto-open is reversed.
   // Admin builds lazily on its own tab's first click, same as it always did.
   show("main");
-  refresh();
-  refreshTimer ??= setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
+  onHomeTab = true;
+  syncPolling();
+}
+
+// F23: starts or stops the 30s poll to match whether anyone can see its
+// result — a session is live AND Home is the visible tab AND the window is
+// focused. Called from all three signals changing, so any one of them
+// re-checks the whole thing; idempotent either way, since it only acts when
+// the timer's current state doesn't already match what's wanted.
+//
+// The session-liveness check matters on its own: onHomeTab and windowFocused
+// both default true, and "window-focus" is a global listener that fires
+// before any session exists — found by tracing through the launcher-screen
+// case, not by a failing test. Without it, focusing the window while still
+// on the plain launcher would start the poll against no session at all,
+// failing every 30s and cycling a status message for nothing. $("main")'s
+// hidden state is the same signal startSession()/clearGuests() already use
+// for "a session is live, showing Home's data" — not new state, just read.
+function syncPolling() {
+  if (!$("main").hidden && onHomeTab && windowFocused) {
+    if (!refreshTimer) {
+      refresh(); // Q23.2: catch up at once, matching the stale-tab scenario.
+      refreshTimer = setInterval(refresh, 30_000); // Q5.1: 30s, as cv4pve uses
+    }
+  } else if (refreshTimer) {
+    clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
 }
 
 $("logout").addEventListener("click", async () => {
@@ -281,27 +321,17 @@ function kindLabel(kind) {
   return kind === "qemu" ? "VM" : "LXC";
 }
 
-// Q5.2: match over name, VMID, node and tags. Everything the server sent is
-// lowercased once per row; the query is already lowercase.
-function matches(g, query) {
-  if (!query) return true;
-  const haystack = [
+// Q5.2/F22 Q22.2: match over name, VMID, node and tags. Built once per row,
+// not once per keystroke — applyFilter() tests the query against this
+// cached string rather than rebuilding it from the guest object each time.
+function haystack(g) {
+  return [
     g.name ?? "",
     String(g.vmid),
     g.node,
     g.tags ?? "",
     kindLabel(g.kind),
   ].join(" ").toLowerCase();
-  return haystack.includes(query);
-}
-
-// Server-supplied text (name, node, status, tags) goes in with textContent,
-// never innerHTML — see the hard rules in CLAUDE.md.
-function cell(tr, text, className) {
-  const td = document.createElement("td");
-  td.textContent = text;
-  if (className) td.className = className;
-  tr.append(td);
 }
 
 // ---- F6: power actions ----
@@ -322,14 +352,20 @@ const POWER_BUTTONS = {
   stopped: [{ action: "start", label: "Start", danger: false }],
 };
 
-// Guests with a request in flight, keyed node/vmid. Held outside the DOM
-// because render() rebuilds every row from scratch — including on the 30s
-// refresh — which would otherwise re-enable a button mid-request and let a
-// second POST through.
+// Guests with a request in flight, keyed node/vmid. Held outside the DOM —
+// syncRows() reads it fresh for every patch, so a row mid-request stays
+// disabled across a refresh without this living in the guest payload itself.
 const busy = new Set();
 
 const guestKey = (g) => `${g.node}/${g.vmid}`;
 const guestLabel = (g) => (g.name ? `${g.name} (${g.vmid})` : `${g.vmid}`);
+
+// F22: one entry per row, kept across refreshes so syncRows() can patch
+// instead of rebuild. Keyed by vmid alone, not guestKey()'s node/vmid — a
+// live-migrated guest keeps its vmid (cluster-unique in Proxmox), so this
+// treats a migration as "the node cell changed" rather than delete+recreate.
+// busy deliberately keeps its own node/vmid key; see DECISIONS.md.
+const rowsByKey = new Map();
 
 async function power(g, action, label) {
   // Q6.2: only the forced stop asks, because it is the one that can lose
@@ -343,7 +379,7 @@ async function power(g, action, label) {
   }
 
   busy.add(guestKey(g));
-  render();
+  syncRows();
   status(`${label} ${guestLabel(g)}…`);
   try {
     await invoke("power_action", {
@@ -359,7 +395,7 @@ async function power(g, action, label) {
     busy.delete(guestKey(g));
     // Re-enable the row here rather than leaving it to refresh(), which
     // returns early if the fetch fails.
-    render();
+    syncRows();
   }
   // Proxmox answers with a task id and works on it afterwards, so the status
   // in /cluster/resources lags the request. Read it now for the error case,
@@ -368,9 +404,11 @@ async function power(g, action, label) {
   setTimeout(refresh, 3000);
 }
 
-function powerCell(tr, g) {
-  const td = document.createElement("td");
-  td.className = "actions";
+// Fills an existing power-actions <td> with this guest's buttons. Shared by
+// row creation and by patchRow(), which only calls this when status or busy
+// state actually changed — the one case where listeners must be rebound.
+function fillPowerCell(td, g) {
+  td.replaceChildren();
   const working = busy.has(guestKey(g));
   // `hasOwn`, not a bare lookup: g.status comes from the server, and
   // "constructor" would otherwise resolve to something that isn't a list.
@@ -385,48 +423,178 @@ function powerCell(tr, g) {
     button.addEventListener("click", () => power(g, b.action, b.label));
     td.append(button);
   }
-  tr.append(td);
 }
 
-function row(g) {
+// The formatted strings diffed against on every patch, so a guest whose raw
+// cpu/mem jitters but rounds to the same text doesn't touch the DOM either.
+function cpuText(g) {
+  return g.cpu != null ? `${(g.cpu * 100).toFixed(0)}%` : "–";
+}
+function memText(g) {
+  return `${fmtMem(g.mem)} / ${fmtMem(g.maxmem)}`;
+}
+
+// One row, built once. Cell references are kept on the entry so later
+// patches can write straight to them instead of re-creating anything.
+// Server-supplied text (name, node, status, tags) goes in with textContent,
+// never innerHTML, here and in patchRow() below — see the hard rules in
+// CLAUDE.md.
+function createRowEntry(g) {
   const tr = document.createElement("tr");
-  cell(tr, g.vmid);
-  cell(tr, g.name ?? "");
-  cell(tr, kindLabel(g.kind));
-  cell(tr, g.node);
-  // The class is derived from the status, so keep it to the values we style.
+  const idCell = document.createElement("td");
+  const nameCell = document.createElement("td");
+  const typeCell = document.createElement("td");
+  const nodeCell = document.createElement("td");
+  const statusCell = document.createElement("td");
+  const cpuCell = document.createElement("td");
+  const memCell = document.createElement("td");
+  const powerTd = document.createElement("td");
+  powerTd.className = "actions";
+
+  idCell.textContent = g.vmid;
+  nameCell.textContent = g.name ?? "";
+  typeCell.textContent = kindLabel(g.kind);
+  nodeCell.textContent = g.node;
   const known = g.status === "running" || g.status === "stopped";
-  cell(tr, g.status, known ? `st-${g.status}` : undefined);
-  cell(tr, g.cpu != null ? `${(g.cpu * 100).toFixed(0)}%` : "–");
-  cell(tr, `${fmtMem(g.mem)} / ${fmtMem(g.maxmem)}`);
-  powerCell(tr, g);
-  return tr;
+  statusCell.textContent = g.status;
+  if (known) statusCell.className = `st-${g.status}`;
+  cpuCell.textContent = cpuText(g);
+  memCell.textContent = memText(g);
+  fillPowerCell(powerTd, g);
+
+  tr.append(idCell, nameCell, typeCell, nodeCell, statusCell, cpuCell, memCell, powerTd);
+  return {
+    tr,
+    nameCell,
+    typeCell,
+    nodeCell,
+    statusCell,
+    cpuCell,
+    memCell,
+    powerTd,
+    // Cached only for diffing and the search haystack — never read by
+    // anything that needs live server state.
+    name: g.name ?? "",
+    kind: g.kind,
+    node: g.node,
+    tags: g.tags ?? "",
+    status: g.status,
+    cpuText: cpuText(g),
+    memText: memText(g),
+    working: busy.has(guestKey(g)),
+    haystack: haystack(g),
+  };
 }
 
-function render() {
+// Writes only the cells whose value actually differs from the last patch.
+// An identical refresh — same data, same busy state — writes nothing at all
+// and rebinds no listener, which is the first scenario in the issue.
+function patchRow(entry, g) {
+  // Diffed against the cache BEFORE any of it is overwritten below — compare
+  // first, mutate after, or every comparison here would hold its own cached
+  // value up against itself and never fire.
+  const name = g.name ?? "";
+  const tags = g.tags ?? "";
+  const identityChanged = name !== entry.name || g.kind !== entry.kind ||
+    g.node !== entry.node || tags !== entry.tags;
+
+  if (name !== entry.name) {
+    entry.nameCell.textContent = name;
+    entry.name = name;
+  }
+  if (g.kind !== entry.kind) {
+    entry.typeCell.textContent = kindLabel(g.kind);
+    entry.kind = g.kind;
+  }
+  if (g.node !== entry.node) {
+    entry.nodeCell.textContent = g.node;
+    entry.node = g.node;
+  }
+  entry.tags = tags;
+  if (identityChanged) entry.haystack = haystack(g);
+
+  if (g.status !== entry.status) {
+    entry.statusCell.textContent = g.status;
+    const known = g.status === "running" || g.status === "stopped";
+    entry.statusCell.className = known ? `st-${g.status}` : "";
+  }
+
+  const cpu = cpuText(g);
+  if (cpu !== entry.cpuText) {
+    entry.cpuCell.textContent = cpu;
+    entry.cpuText = cpu;
+  }
+  const mem = memText(g);
+  if (mem !== entry.memText) {
+    entry.memCell.textContent = mem;
+    entry.memText = mem;
+  }
+
+  const working = busy.has(guestKey(g));
+  if (g.status !== entry.status || working !== entry.working) {
+    fillPowerCell(entry.powerTd, g);
+  }
+  entry.status = g.status;
+  entry.working = working;
+}
+
+// Toggles visibility against each row's precomputed haystack rather than
+// filtering the guest list and rebuilding — the search-box scenario.
+function applyFilter() {
   const query = $("search").value.trim().toLowerCase();
-  const shown = guests.filter((g) => matches(g, query));
-  $("guests").replaceChildren(...shown.map(row));
-  $("count").textContent = query
-    ? `${shown.length} of ${guests.length}`
-    : `${guests.length}`;
+  let shown = 0;
+  for (const entry of rowsByKey.values()) {
+    const match = !query || entry.haystack.includes(query);
+    if (entry.tr.hidden !== !match) entry.tr.hidden = !match;
+    if (match) shown++;
+  }
+  $("count").textContent = query ? `${shown} of ${rowsByKey.size}` : `${rowsByKey.size}`;
+}
+
+// Patches existing rows, creates rows for new guests, drops rows for gone
+// ones, and reorders only a row whose position actually moved. `guests` is
+// already sorted by vmid (refresh()), so this walk is the intended order.
+function syncRows() {
+  const tbody = $("guests");
+  const seen = new Set();
+  let prevTr = null;
+  for (const g of guests) {
+    seen.add(g.vmid);
+    let entry = rowsByKey.get(g.vmid);
+    if (entry) {
+      patchRow(entry, g);
+    } else {
+      entry = createRowEntry(g);
+      rowsByKey.set(g.vmid, entry);
+    }
+    const wantAfter = prevTr ? prevTr.nextSibling : tbody.firstChild;
+    if (wantAfter !== entry.tr) tbody.insertBefore(entry.tr, wantAfter);
+    prevTr = entry.tr;
+  }
+  for (const [key, entry] of rowsByKey) {
+    if (!seen.has(key)) {
+      entry.tr.remove();
+      rowsByKey.delete(key);
+    }
+  }
+  applyFilter();
 }
 
 async function refresh() {
   try {
     const all = await invoke("list_guests");
     // Q5.3: templates are hidden outright, so drop them here rather than in
-    // render() — they shouldn't be reachable through the search box either.
+    // syncRows() — they shouldn't be reachable through the search box either.
     guests = all.filter((g) => g.template !== 1);
     guests.sort((a, b) => a.vmid - b.vmid);
-    render();
+    syncRows();
     status(`Updated ${new Date().toLocaleTimeString()}`);
   } catch (err) {
     status(`Refresh failed: ${err}`);
   }
 }
 
-$("search").addEventListener("input", render);
+$("search").addEventListener("input", applyFilter);
 $("refresh").addEventListener("click", refresh);
 
 
