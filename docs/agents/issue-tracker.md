@@ -51,7 +51,7 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 
 Work for this repo is tracked as GitHub issues in `AdamBougher/pve-desk`. The
 issue body **is** the spec, written as Gherkin, migrated out of the old
-`ROADMAP.md`.
+`ROADMAP.md` and deleted with it — the issues are the only copy now.
 
 - **Title**: `F<n> — <feature name>`, e.g. `F12 — Packaging and release`. The
   F-number is permanent and is how features refer to each other ("F20 gates
