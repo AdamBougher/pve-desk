@@ -54,12 +54,19 @@ injects the stub ahead of `main.js`; **nothing is written into `ui/`**.
 node .claude/skills/run-pve-desk/driver.mjs smoke
 ```
 
-27 checks, ~25s, exit 0 on success. It walks: launcher render → probe
+44 checks, ~30s, exit 0 on success. It walks: launcher render → probe
 statuses → certificate refusal and its fingerprint → connect → guest rows
-and which power buttons each status gets → the hostile-name XSS check →
-search filtering → force-stop confirm (cancel *and* confirm) → the exact
-`power_action` arguments → a backend error reaching the status line →
-`session-lost` returning to the launcher.
+and which power buttons each status gets → F22's diff-only patching → the
+hostile-name XSS check → search filtering → force-stop confirm (cancel *and*
+confirm) → the exact `power_action` arguments → F23's poll pause/resume on
+tab and focus → a backend error reaching the status line → `session-lost`
+returning to the launcher → F24's launcher-does-not-wait-for-probes.
+
+The F24 section reloads the page with `?hangprobe=<connection name>`, which
+makes that one connection's `probe_connection` never resolve. It hangs the
+**first** connection on purpose: hanging the second passes even against a
+sequential probe loop, so it would assert nothing. Keep it on the row that
+blocks the live one.
 
 For poking at it by hand:
 

@@ -446,6 +446,72 @@ bearing, not cosmetic: reverted it, re-ran `driver.mjs smoke`, watched
 "focus changes on the launcher do not start polling" fail, restored it,
 watched it pass again.
 
+### Cold start is already fast enough (F24, 2026-10-24)
+**Q24.1: record the baseline, optimise nothing.** The feature assumed cold
+start needed fixing. Measured first, as the issue itself demanded ("the first
+job is a number, not a fix"), and the number closed the feature instead of
+starting it. Release build, this machine (KDE/X11), live node, three runs:
+
+| milestone | from `exec` |
+| --- | --- |
+| Rust `run()` entry | 17–18ms |
+| Tauri `setup()`, GTK init | 129–151ms |
+| `main.js` first line (webview boot) | 266–315ms |
+| rows painted, fields filled | 281–330ms |
+| reachable status resolved | 300–341ms |
+
+The "launcher in under a second" target was already met about 3x over before
+any work. **The reason not to chase the rest: it is not this app's time.**
+Roughly 280ms of the ~300ms is GTK init plus WebKit boot; the app's own
+startup path — `run()` entry through listing connections and painting rows —
+is about 15ms of it. Release-profile tuning (`lto`, `codegen-units`, `strip`)
+would shave the 17ms to `run()`, not the 280ms of webview boot. `lto` is a
+dead end here for a second, independent reason already in this file:
+`options=(!lto)` is *required* for the Arch package to link at all.
+
+**Q24.2 (splash or skeleton) is moot, not answered.** A splash exists only to
+cover a slow first paint. At ~330ms there is nothing to cover and a splash
+would make first paint worse. Dropped as a consequence of Q24.1, not decided
+on its own merits — if cold start ever regresses badly, it is open again.
+
+**The scenario was measured against the real worst case, not inferred.** A
+throwaway config via `XDG_CONFIG_HOME` (so the real `~/.config/pve-desk` was
+untouched) paired the live node with `192.0.2.1` — RFC 5737 TEST-NET, which
+*hangs* rather than refusing, so the probe runs the full 5s timeout from
+`api.rs`. Rows painted at 320ms, unchanged from the all-reachable runs; the
+reachable row resolved at 327ms; the blackholed one at 5323ms. Corroborating
+evidence the probes are genuinely parallel rather than accidentally
+sequential: across the all-reachable runs the two completed in a *different
+order* each time.
+
+**Method note — how the numbers were taken, and one dead end.** First attempt
+was to poll screenshots for the window painting. It does not work: each
+`import` + `magick` costs more than the interval being measured, and `import`
+blocks forever once its target window goes away (the hang in `SKILL.md`'s
+Gotchas), so the run dies rather than reporting. What worked was throwaway
+`PVETIME` instrumentation — a temporary `__t` command plus `eprintln!`
+timestamps — launched from a shell that recorded `T0`, then reverted before
+commit. Same build-measure-revert pattern as F23's focus diagnostic. Note
+that `console.log` from the webview does **not** reach the process's stderr
+on WebKitGTK; that was checked, not assumed, and is why the timing had to
+cross the IPC boundary to be seen at all.
+
+**The regression guard asserts the behaviour, not the milliseconds.** Timings
+belong to the machine and would make a flaky assertion; "a dead host does not
+hold up a live one" is the actual property and needs no node. `driver.mjs`
+gained a `?hangprobe=<name>` flag (read from the URL, because the thing under
+test is what the launcher does *before* any probe returns, so the hang must
+predate `showLauncher()`).
+
+**It hangs the *first* connection, and that detail is the whole guard.** Written
+the other way round first — hanging the second — it passed against a
+deliberately sequential `for (c of conns) await probe(c)`, because the first
+row still resolves under that regression. Caught by actually making the loop
+sequential and watching the new check stay green, which is the only reason it
+is not a test that asserts nothing. Hanging the row that *blocks* the live one
+goes red on the regression and green on the real code; both directions were
+run.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is

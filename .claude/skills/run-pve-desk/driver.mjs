@@ -96,11 +96,19 @@ window.__CALLS = [];
 window.__RESPONSES = ${JSON.stringify(FIXTURES)};
 window.__FAIL = {};
 window.__LISTENERS = {};
+// F24: ?hangprobe=<name> makes probe_connection never resolve for that one
+// connection. Read from the URL, not set by a later call, because the thing
+// under test is what the launcher does BEFORE any probe comes back — the
+// hang has to be in place before main.js's showLauncher() runs.
+window.__HANG_PROBE = new URLSearchParams(location.search).get("hangprobe");
 window.__TAURI__ = {
   core: {
     invoke(cmd, args) {
       window.__CALLS.push({ cmd, args });
       if (cmd in window.__FAIL) return Promise.reject(window.__FAIL[cmd]);
+      if (cmd === "probe_connection" && args && args.name === window.__HANG_PROBE) {
+        return new Promise(() => {}); // never settles, like an unroutable host
+      }
       const r = window.__RESPONSES[cmd];
       return Promise.resolve(r === undefined ? null : r);
     },
@@ -206,6 +214,8 @@ function browserPids() {
   }
 }
 let preexistingBrowsers = [];
+// The built page, kept so a check can reload it with different query flags.
+let PAGE = null;
 
 async function start() {
   if (!PORT) PORT = await freePort();
@@ -242,7 +252,8 @@ async function start() {
       },
     })
   ).sessionId;
-  await s("POST", "/url", { url: `file://${buildPage()}` });
+  PAGE = buildPage();
+  await s("POST", "/url", { url: `file://${PAGE}` });
   // main.js boots asynchronously (showLauncher awaits list_connections).
   await waitUntil(() => count("#connections li").then((n) => n > 0), "launcher rows");
 }
@@ -611,6 +622,39 @@ async function smoke() {
   check("back at launcher", await visible("#launcher"));
   check("guest view hidden again", !(await visible("#main")));
   check("reason shown", (await text("#status")).includes("ticket rejected"));
+
+  // F24: last, because it reloads the page and resets every bit of state the
+  // sections above built up. Guards the measured property rather than the
+  // measured milliseconds — timings belong to the machine, but "a dead host
+  // does not hold up a live one" is the behaviour, and it is checkable with
+  // no node at all. Measured for real on 2026-10-24 against 192.0.2.1
+  // (RFC 5737 TEST-NET, which hangs rather than refusing): rows painted at
+  // 320ms, the reachable row resolved at 327ms, the blackholed one at
+  // 5323ms. See issue #13 and DECISIONS.md.
+  console.log("launcher does not wait for probes (F24)");
+  // Hangs the FIRST connection, deliberately. Hanging the second proves
+  // nothing: a sequential `for (c of conns) await probe(c)` would still let
+  // the first resolve, so the check passed against that regression when it
+  // was written the other way round. Verified by actually making the loop
+  // sequential and watching it stay green — then flipping to "home", where
+  // it goes red. The hung row must be the one BLOCKING the live one.
+  await s("POST", "/url", { url: `file://${PAGE}?hangprobe=home` });
+  await waitUntil(() => count("#connections li").then((n) => n > 0), "rows with a hung probe");
+  check("both rows painted while a probe hangs", (await count("#connections li")) === 2);
+  // The fields come from list_connections, so they must be filled in even
+  // though no probe has answered — "the rows appear with their fields in".
+  const firstRow = await text("#connections li");
+  check("fields are filled in, not left blank", firstRow.includes("192.168.1.2:8006"), firstRow);
+  const stateOf = (i) =>
+    exec(
+      `return document.querySelectorAll("#connections li")[${i}].querySelector(".state").textContent`,
+    );
+  // The second row resolving while the FIRST is still hanging is the
+  // "resolves on its own without blocking the others" clause.
+  await waitUntil(async () => (await stateOf(1)).includes("Reachable"), "the live row resolves");
+  check("a live row resolves past a probe hanging ahead of it", (await stateOf(1)).includes("Reachable"));
+  const hung = await stateOf(0);
+  check("the hung row is still pending, not failed or guessed", hung.includes("Checking"), hung);
 
   const file = await shot("smoke");
   console.log(`\nscreenshot: ${file}`);
