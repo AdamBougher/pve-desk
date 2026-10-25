@@ -66,6 +66,15 @@ Windows and wanted the same experience on Linux, so I built one.
   rejects anyway triggers one silent re-login and a retry. If that fails too,
   you land back on the launcher with the reason.
 - **Log out.** Drops the session, keeps the saved credentials.
+- **A tray icon, and a window that closes to it.** Closing the window no
+  longer quits the app — it hides to the system tray, and **Quit** in the
+  tray menu is how you actually exit. The menu lists every guest in the
+  session with the one action its state allows, Start for a stopped guest or
+  Shutdown for a running one, so a VM can be started without opening the
+  window. The forced stop is deliberately not there: it is the action that
+  asks before it fires, and the confirmation lives in the window. If the tray
+  can't be created, closing the window quits as it used to, so the app can
+  never hide with nowhere to come back from.
 
 ## What isn't done
 
@@ -79,6 +88,10 @@ Honest limits, so you can judge it before installing:
   CI — but neither has ever been run, and where the UI can't be shared, Linux
   wins: the tab strip is a GTK widget, so elsewhere the admin panel would be a
   separate window.
+- **The tray's guest list is unproven.** The icon, the menu, closing to the
+  tray, Show and Quit were all driven over DBus and work. What has never run
+  against a real node is the part that lists guests and powers them from the
+  menu.
 - **A few paths are unproven**, including the real 90-minute ticket refresh
   (only tested with the threshold lowered to seconds) and running two saved
   connections side by side.
@@ -260,8 +273,9 @@ The repo carries its working notes, which is unusual enough to explain:
 - [GitHub issues](https://github.com/AdamBougher/pve-desk/issues) —
   outstanding work only, one issue per feature, the body written as Gherkin
   scenarios. A finished feature is closed.
-- [ROADMAP.md](ROADMAP.md) — the map of which issues sit in which pass (v1,
-  v2, v3, later), and nothing else.
+- [Milestones](https://github.com/AdamBougher/pve-desk/milestones) — which
+  pass a feature sits in. `v1`, `v2` and `v3` are milestones; everything
+  deferred past them carries the `later` label and no milestone.
 - [DECISIONS.md](DECISIONS.md) — why it's built this way, and what was tried
   and failed. Several ideas in there were built, tested and removed.
 - [CLAUDE.md](CLAUDE.md) — the working agreement the AI model operates under,
