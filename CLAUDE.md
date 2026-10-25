@@ -18,8 +18,8 @@ before starting anything:
   open questions. Labels give the pass (`v1` `v2` `v3` `later`) and the state
   (`todo` `wip` `unverified` `blocked` `open`). The scenarios are the spec,
   not an executable suite. A finished feature is closed. Conventions:
-  `docs/agents/issue-tracker.md`. `ROADMAP.md` is only the map of which
-  issues are in which pass.
+  `docs/agents/issue-tracker.md`. Which pass a feature is in is its
+  milestone (`v1`, `v2`, `v3`) or, past those, the `later` label.
 - `DECISIONS.md` — why the app is built this way, and **what was already
   tried and failed**. Check it before re-proposing something; several ideas
   in there were built, tested and removed.
@@ -166,9 +166,10 @@ If you're unsure whether something counts as architecture, ask.
 ## How to work on a feature
 
 1. Read the feature's issue — `gh issue view <n>`. The scenarios are what it
-   has to do, the `#` comments are what is still undecided. `ROADMAP.md` maps
-   F-numbers to issue numbers; the F-number in the title is permanent and is
-   not the issue number.
+   has to do, the `#` comments are what is still undecided. The F-number is
+   in the issue title and is permanent; it is **not** the issue number (F10 is
+   issue #26), so find the issue by its title —
+   `gh issue list --state open` — rather than by guessing a number.
 2. Ask its open questions **one at a time**. Wait for each answer before the
    next question. Don't stack questions whose answers depend on each other.
 3. For each answer: record it in `DECISIONS.md` with its reasoning, and edit
@@ -190,8 +191,9 @@ If you're unsure whether something counts as architecture, ask.
 Don't leave a feature whose scenarios all pass sitting open. Finishing
 includes retiring the issue, in the same commit as the code:
 
-- **Close the issue** (`gh issue close <n> --comment "..."`), and delete its
-  row from `ROADMAP.md`. Anything still open about it — a question you
+- **Close the issue** (`gh issue close <n> --comment "..."`). Closing it is
+  the whole retirement; there is no separate list to delete a row from.
+  Anything still open about it — a question you
   deferred, a scenario nobody ran — moves to the "Shipped but unproven"
   issue as an `unverified` scenario instead.
 - **Move its decisions to `DECISIONS.md`**: the answers to its questions with

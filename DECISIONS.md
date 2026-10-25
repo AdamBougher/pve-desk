@@ -6,8 +6,8 @@ model or the Linux rendering setup** — several of the ideas below were
 implemented, tested against the real node, and then removed.
 
 Companion files: outstanding work is the
-[GitHub issues](https://github.com/AdamBougher/pve-desk/issues) with
-`ROADMAP.md` as their map, `GLOSSARY.md` is the agreed word for each concept,
+[GitHub issues](https://github.com/AdamBougher/pve-desk/issues), grouped into
+passes by milestone, `GLOSSARY.md` is the agreed word for each concept,
 and `README.md` is what the app does today. Question numbers (Q1.1, Q3.3 …)
 are kept because source comments cite them.
 
@@ -863,6 +863,153 @@ Prerequisites, in order, when a desktop VM exists: install `virt-viewer`
 Hardware → Display to `SPICE (qxl)`; add the button for qualifying rows only;
 then measure the real read window and replace the 3s guess in `spice.rs`.
 
+### SPICE: how a row qualifies (F7 Q7.3, 2026-10-24)
+**A row gets the SPICE button only from a per-guest config read**, never from
+a guess. `/cluster/resources` — the one call the guest list makes — does not
+report a guest's display type, so the list as it stands cannot tell a
+`SPICE (qxl)` VM from a `std` one.
+
+Rejected: offering the button on every running VM and letting the launch fail.
+`remote-viewer` would be spawned at a guest that cannot answer it, so the
+failure lands in the viewer rather than in pve-desk, where nothing can explain
+it. A button that is sometimes a dead end is worse than no button.
+
+**Consequence: F7 waits on F29 (#24) as well**, which reads each guest's
+config for its options panel. When that read exists, the display type comes
+with it for free and the button becomes a filter over data already fetched.
+Adding a second per-guest config call just for SPICE was not worth it for a
+feature that still has no guest to point at (Q7.1).
+
+Unchanged by this: the prerequisite order above, and the unmeasured 3s
+`READ_WINDOW` in `spice.rs`. `virt-viewer` is still not installed here
+(checked again 2026-10-24).
+
+### The tray (F10, 2026-10-24)
+**Q10.1: every guest in the session, not favourites.** Favourites (F11, #16)
+was the feature's premise, but F11 is not built and there are two nodes and a
+handful of guests here, so a flat list is short enough to read. Making F10
+wait on a v2 feature bought nothing. When F11 lands the menu narrows to pinned
+guests and shares its pin storage.
+
+Rejected: **running guests only**, which would have kept the menu short with
+no F11 dependency but never shows a stopped guest — contradicting the one
+thing F10 exists for, "starting a VM does not need the window".
+
+**Q10.2: start and shutdown only.** The forced stop stays in Home. Q6.2
+decided it is the single action that asks before firing, and it asks with the
+in-page panel (`askConfirm` in `main.js`), which cannot be reached while the
+window is hidden. The options were to drop it, or to have the tray raise the
+window to confirm — which breaks the same "without the window" promise the
+menu is for. A force stop that can lose guest data, one slip from the cursor
+and with no confirmation, was not on the table.
+
+**Q4.2, open since F4: closing the window hides it to the tray**, and Quit is
+a tray menu item. This is the only reading under which the feature's premise
+is true; a tray that dies with the window is a shortcut, not a tray. **If the
+tray cannot be created, close quits as before**, so there is no state where
+the app hides with no way back to it.
+
+#### Two Linux facts that decide the shape, read from tauri 2.12.4's source
+
+Not recalled — `tauri-2.12.4/src/tray/mod.rs`:
+
+- **`TrayIconEvent` is never emitted on Linux.** The doc comment is explicit:
+  "Unsupported. The event is not emitted even though the icon is shown and
+  will still show a context menu on right click." `show_menu_on_left_click`
+  is likewise unsupported. So there is no click handler to hang anything on,
+  and **"Show pve-desk" has to be a menu item** rather than the left-click
+  behaviour it is on other platforms. Anyone porting this under F17 gets
+  clicks for free; the Linux build must not depend on them.
+- **Nothing offers a menu-about-to-open hook** — not `tauri::tray`, not
+  `tray-icon` 0.25.1. The menu cannot be built lazily when it is opened, so
+  it has to be rebuilt proactively at known moments.
+
+Consequence for F23, which stops the 30s guest poll whenever the main window
+loses focus: a hidden window polls nothing, so the tray cannot read the
+frontend's list and expect it to be current.
+
+**No `trayIcon` key in `tauri.conf.json`.** The tray is built in Rust with
+`TrayIconBuilder`, which needs no config key and no capability — `core:tray`
+permissions govern the *frontend* calling tray APIs, which it does not. Same
+reasoning as preferring Rust-side window creation. The one build change is
+the `tray-icon` Cargo feature on `tauri`, which is optional and off by
+default.
+
+#### The tray was driven over DBus, not clicked (F10, 2026-10-24)
+A tray menu cannot be asserted from `cargo test`, and clicking a panel icon
+is neither deterministic nor safe against a live desktop with a dozen other
+tray items in it. So it was driven the way F23's focus behaviour was: through
+the protocol underneath it.
+
+On Linux the tray is a StatusNotifierItem, and its menu is served over
+`com.canonical.dbusmenu`. That makes the menu **readable and clickable from
+outside the app**:
+
+- `org.kde.StatusNotifierWatcher.RegisteredStatusNotifierItems`, diffed
+  before and after launch, names the app's own item — here
+  `:1.2318/org/ayatana/NotificationItem/tray_icon_tray_app_main`, the id
+  ending in `TRAY_ID`.
+- `com.canonical.dbusmenu.GetLayout` returns every item with its label and
+  `enabled` flag, which is the menu's contents without a screenshot.
+- `com.canonical.dbusmenu.Event(id, "clicked", …)` picks an item for real, so
+  `on_menu_event` runs exactly as it would from the panel.
+- `WM_DELETE_WINDOW` for the close, sent with `python-xlib`. **It must be
+  sent to the client window, not to the root.** Sent to the root with
+  `SubstructureRedirect` — the correct form for `_NET_*` requests — it is
+  silently dropped, and the app looks like it ignored the close. That cost a
+  round of thinking the hide had failed.
+
+What this confirmed on 2026-10-24, with no node reachable:
+
+- The item registers, `Status=Active`, and its icon is written to
+  `/run/user/1000/tray-icon/tray-icon-main-0.png`. Those bytes decode
+  **pixel-identical to the tracked `icons/32x32.png`**, and the image carries
+  both F20 colours — `#E57000` on 209 pixels (the X) and `#F2F2F2` on 174
+  (the chevrons). So F20's fix does reach the tray, which is what the F10
+  issue had flagged as never looked at. Whether it *reads* on a given panel
+  is still an eyeball matter.
+- With no session the menu is exactly `No connection` (disabled), a
+  separator, `Show pve-desk`, `Quit`.
+- Closing the window leaves the process running and the item registered; the
+  window leaves `_NET_CLIENT_LIST` and comes back from `Show pve-desk` as the
+  **same window id**, not a new one.
+- `Quit` exits the process and deregisters the item.
+
+**Item ids are not stable across a rebuild**, which is how the rebuild-on-hide
+was confirmed: ids 2–5 became 7–10 after the window hid, and a click on the
+old id is refused with "The ID supplied does not refer to a menu item we
+have". Anything scripting this menu has to re-read the layout first.
+
+#### Where the menu's guest list comes from (F10, 2026-10-24)
+**Rust fetches it itself, event-driven, with no timer.** `AppState` holds the
+session and `AppHandle` reaches it, so the tray needs no webview at all. The
+menu is rebuilt at three known moments: a session connecting or being lost,
+the window being hidden, and immediately after a tray power action. That last
+one is what makes "the menu afterwards offers Shutdown, not Start" true with
+the window still closed.
+
+Known cost, accepted: while the window is open, a guest started from Home does
+not reach the tray menu until the window is hidden. Only `status` goes stale —
+names, vmids and nodes do not change — and the menu is rebuilt before anyone
+can use it, since using it means the window is away.
+
+Rejected: **the frontend pushing its list** through a new `set_tray_guests`
+command. It costs no extra API calls and would keep the tray in step with Home
+while visible, but F23 has already paused the poll by the time the window is
+hidden, so it still needs the post-action rebuild — it is the chosen option
+plus a push, not an alternative to it. It would also put a tray concern in
+`refresh()`.
+
+Rejected: **a background poller while hidden.** It is exactly what F23 removed
+— polling that nobody is watching — and an app left closed to the tray would
+hit the node every 30s for as long as it ran.
+
+**The tray lives in `src-tauri/src/tray.rs`**, one job per file as the rest of
+the tree does. `commands.rs` is documented as every function the UI can call,
+and none of the tray code is UI-callable. The no-tray fallback for Q4.2 needs
+no new shared state: `AppHandle::tray_by_id` returning `None` is the test for
+"there is no tray, so close means quit".
+
 ### Cross-platform findings (F17, 2026-10-21)
 Verified by reading the vendored sources, not assumed:
 
@@ -939,7 +1086,12 @@ from the host, so a green container run is not evidence the app works on a
 real desktop. Keep verifying on the host.
 
 ### The roadmap is Gherkin (2026-10-22)
-`ROADMAP.md` is written as Gherkin feature files: tags for the pass and
+**Superseded: `ROADMAP.md` no longer exists** — deleted in `f83f8ae`
+(2026-10-24), two days after this. The Gherkin form survived the move and is
+how an issue body is still written; only the file is gone. Kept because it is
+where the form was chosen and why.
+
+`ROADMAP.md` was written as Gherkin feature files: tags for the pass and
 status, a `Feature:` block per outstanding feature, `Scenario:` blocks as its
 acceptance criteria, and `#` comments for its open questions. Asked for by
 the user; chosen in the "pure Gherkin, prose trimmed hard" form, which is why
@@ -974,8 +1126,16 @@ for them to read.
   `xprop` reporting `"pve-desk", "Pve-desk"`) that one `grep` used to find and
   `git log` used to track. Now it is `gh issue list --json body` and the
   issue's own edit history.
-- **`ROADMAP.md` survives as the map**, 106 lines: the passes, which issues
-  are in them, and the F-number rule. Not the spec.
+- **`ROADMAP.md` was kept as the map** at the time, 106 lines: the passes,
+  which issues are in them, and the F-number rule. Not the spec.
+  **That did not last.** The file was deleted in `f83f8ae` later the same
+  day and **GitHub milestones took the job over**: `v1`, `v2` and `v3` are
+  milestones, and anything deferred past them carries the `later` label and
+  no milestone. A hand-maintained map of which issue is in which pass was a
+  second copy of something the tracker already knew, and it went stale the
+  first time an issue moved. The F-number rule it also carried is in
+  `CLAUDE.md` and `docs/agents/issue-tracker.md`, which is where a reader
+  looks for a convention.
 - **F-numbers are not issue numbers** and never will be. The `F<n>` is
   permanent and is how features cite each other; the `#number` is only for
   links. F12 is issue #9.
