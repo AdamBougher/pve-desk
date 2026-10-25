@@ -6,8 +6,8 @@ description: Work one pve-desk feature end to end, following the project's requi
 # Work a feature
 
 Argument: a feature id (`F5`) or a description that maps to one. Features are
-GitHub issues titled `F<n> — <name>`; `ROADMAP.md` maps F-numbers to issue
-numbers, and the two never match (F12 is issue #9). Find it with
+GitHub issues titled `F<n> — <name>`. The F-number is in the title and never
+matches the issue number (F12 is issue #9), so find the issue by its title:
 `gh issue list --state open`. If it maps to no open issue, say so and ask —
 don't invent a feature.
 
@@ -112,9 +112,10 @@ fixing unrelated code.
   a time. If it only compiles and can't be exercised without a live Proxmox
   node, use `unverified` and stop there until the user confirms it.
 - **Once it is confirmed working, retire it in the same commit:**
-  `gh issue close <n> --comment "..."`, delete its row from `ROADMAP.md`, move
-  its decisions and dead ends to `DECISIONS.md`, push anything still unrun to
-  the "Shipped but unproven" issue (#30) as an `unverified` scenario, and
+  `gh issue close <n> --comment "..."` — closing it is the whole retirement —
+  move its decisions and dead ends to `DECISIONS.md`, push anything still
+  unrun to the "Shipped but unproven" issue (#30) as an `unverified`
+  scenario, and
   update `README.md` if the app now does something new. Open issues are
   outstanding work and nothing else — never a finished feature left open.
 - Compare the result against the Goal from step 4 and say: met, partly met, or
