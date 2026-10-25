@@ -63,6 +63,23 @@ pub struct Guest {
     pub template: Option<u8>,
     #[serde(default)]
     pub tags: Option<String>,
+    // F25: already in the response, previously dropped on the way in. All
+    // optional like the fields above, so a node that omits one gives the UI
+    // an unknown to render rather than a parse failure that loses the row.
+    /// Seconds since the guest started; absent or 0 when it is not running.
+    #[serde(default)]
+    pub uptime: Option<u64>,
+    /// Bytes used. **0 for a QEMU guest** — the host cannot see inside a
+    /// VM's filesystem, so Proxmox reports zero rather than a figure. LXC
+    /// reports real usage.
+    #[serde(default)]
+    pub disk: Option<u64>,
+    #[serde(default)]
+    pub maxdisk: Option<u64>,
+    #[serde(default)]
+    pub netin: Option<u64>,
+    #[serde(default)]
+    pub netout: Option<u64>,
 }
 
 /// Power actions the frontend is allowed to ask for (DECISIONS.md Q6.1):
@@ -401,9 +418,11 @@ mod tests {
     const SAMPLE: &str = r#"{"data":[
         {"vmid":100,"name":"web","type":"qemu","node":"pve","status":"running",
          "cpu":0.0234,"maxcpu":2,"mem":2147483648,"maxmem":4294967296,
-         "tags":"prod;web"},
+         "tags":"prod;web","uptime":275400,"disk":0,"maxdisk":34359738368,
+         "netin":46137344,"netout":1181116006},
         {"vmid":101,"name":"dns","type":"lxc","node":"pve","status":"stopped",
-         "cpu":0,"maxcpu":1,"mem":0,"maxmem":536870912},
+         "cpu":0,"maxcpu":1,"mem":0,"maxmem":536870912,"uptime":0,
+         "disk":1288490188,"maxdisk":8589934592},
         {"vmid":900,"name":"debian-tmpl","type":"qemu","node":"pve",
          "status":"stopped","template":1}
     ]}"#;
@@ -430,6 +449,29 @@ mod tests {
         assert_eq!(guests[2].template, Some(1));
     }
 
+    /// F25 reads these five off the same listing, which is what lets a detail
+    /// open with no extra API call. A VM's `disk` really is 0: the host
+    /// cannot see inside its filesystem, and the UI shows that as unknown.
+    #[test]
+    fn parses_the_detail_fields() {
+        let body: ApiResponse<Vec<Guest>> = serde_json::from_str(SAMPLE).unwrap();
+        let vm = &body.data[0];
+        assert_eq!(vm.uptime, Some(275400));
+        assert_eq!(vm.disk, Some(0));
+        assert_eq!(vm.maxdisk, Some(34359738368));
+        assert_eq!(vm.netin, Some(46137344));
+        assert_eq!(vm.netout, Some(1181116006));
+
+        // A container reports real disk usage, and no network counters here.
+        let ct = &body.data[1];
+        assert_eq!(ct.disk, Some(1288490188));
+        assert_eq!(ct.netin, None);
+
+        // The template row has none of them at all and still parses.
+        assert_eq!(body.data[2].uptime, None);
+        assert_eq!(body.data[2].maxdisk, None);
+    }
+
     /// Fields the API leaves out must not fail the whole list. A node that is
     /// down reports its guests with almost nothing filled in.
     #[test]
@@ -441,6 +483,12 @@ mod tests {
         assert_eq!(g.cpu, None);
         assert_eq!(g.mem, None);
         assert_eq!(g.tags, None);
+        // F25's fields are missing here too, and must be just as harmless.
+        assert_eq!(g.uptime, None);
+        assert_eq!(g.disk, None);
+        assert_eq!(g.maxdisk, None);
+        assert_eq!(g.netin, None);
+        assert_eq!(g.netout, None);
     }
 
     /// The frontend reads `g.kind`, `g.template` and `g.tags` by those names

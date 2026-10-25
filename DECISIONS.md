@@ -512,6 +512,85 @@ is not a test that asserts nothing. Hanging the row that *blocks* the live one
 goes red on the regression and green on the real code; both directions were
 run.
 
+### A guest's detail in Home (F25, 2026-10-24)
+**Q25.1: the row expands in place**, a second `<tr>` spanning the table and
+inserted directly under its guest. The issue's own framing — "a row that grows
+keeps one view" — plus the window being 1000px wide, where a side panel would
+have to take width an eight-column table has none to spare. It also survives
+F26: a detail under its own row travels with that row when the sort changes,
+where a panel would need re-pointing.
+
+The cost was accepted knowingly: `syncRows()`'s reorder walk and
+`applyFilter()` are **F22 code that landed two commits earlier**, and both
+have to learn that a guest can own two rows. The walk carries the detail row
+as part of its guest's position; the filter hides it with its guest.
+
+**Q25.2: no qemu-guest-agent IP lookup.** QEMU-only, one call per guest, and
+it fails on every guest without the agent — on this cluster, which is mostly
+LXC, the field would be empty on nearly every row. Its own feature if it is
+ever wanted.
+
+**Q25.3: no sparkline.** `/rrddata` is another per-guest call, and the
+embedded panel already draws real graphs with selectable ranges that a
+sparkline will not match. If charts belong in Home it is under F15 (#21),
+which is the feature about replacing Admin outright.
+
+**Those two answers together are the point:** the detail shows only fields
+`/cluster/resources` already returned, so opening one costs **no API call**.
+That is the first scenario, and it is why the answer to both was no.
+
+**The fields were not in `Guest` at all.** `api.rs` deserialised vmid, name,
+kind, node, status, cpu, maxcpu, mem, maxmem, template and tags — `uptime`,
+`disk`, `maxdisk`, `netin` and `netout` are in the response but were dropped
+on the way in. Added as `Option`, with `serde(default)`, exactly like the
+fields beside them, so a node that omits one renders as unknown instead of
+breaking the row.
+
+**A QEMU guest's `disk` is 0, not its usage.** The host cannot see inside a
+VM's filesystem, so Proxmox reports zero rather than a number. Shown as
+unknown, with `maxdisk` still shown — printing "0.0 GiB / 32 GiB" for every
+VM would be a wrong answer rather than a missing one. LXC reports real usage.
+
+**A second byte formatter, deliberately.** `fmtMem` renders GiB to one
+decimal, which is right for a RAM column and useless for a 44 MB network
+total. The detail row gets its own formatter and `fmtMem` is left alone,
+because **F32 (#18) owns the RAM column's units** and is still open — fixing
+it here would be doing F32's work inside F25 and would pre-empt its decision.
+
+### Sorting and filters in Home (F26, 2026-10-24)
+**Q26.1: vmid, name, node and status sort. CPU and RAM do not.** Sorting by a
+value that changes every 30 seconds would reshuffle rows under the cursor on
+each refresh, which the feature's own first scenario forbids. Two ways to keep
+both were rejected: re-sorting live values each refresh (drops that scenario
+for those columns) and freezing the order after one click (a sort that quietly
+stops being true while the header still claims it). "What is eating CPU" stays
+an Admin question. **Type is not sortable either** — it was not among the
+four, and inventing a fifth is not this feature's job.
+
+Sorting needed almost no new machinery: `syncRows()` already walks the
+`guests` array in order and reorders with `insertBefore` only where a row
+actually moved, so changing the array's sort key is the whole mechanism. That
+was read before deciding, not assumed.
+
+**Q26.2: the sort is remembered**, as one `sort` key in `config.toml` with
+`serde(default)` — the pattern `remote_viewer_path` already uses, so a config
+file written before this feature loads unchanged. It goes before `hosts`,
+which the module keeps last for TOML's sake. Written on each change: the file
+is tiny and `config::save` is already called on connect.
+
+**Q26.3: a status filter only.** Read before answering: the search haystack
+already includes tags, vmid, name, node and the VM/LXC label, so a tag
+control would duplicate a thing that works — status is the one field search
+cannot reach. Rejected: adding status to the haystack instead, which cannot
+compose, and composing is the whole of the second scenario ("running" *and*
+"web", with the count reading "N of M").
+
+**This reverses Q5.2 on purpose.** v1 decided "a search box only, no status or
+tag filters", because the list existed only to find a guest by name. Home is
+a view people read rather than search, which is a different premise — so the
+status filter is in, and tag filters stay out for the reason above, not by
+inheritance.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is

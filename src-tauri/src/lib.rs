@@ -1,10 +1,12 @@
 //! pve-desk: desktop client for Proxmox VE.
 //!
-//! Module map (feature IDs: ROADMAP.md for open work, DECISIONS.md for done):
+//! Module map (feature IDs: GitHub issues for open work, DECISIONS.md for
+//! done):
 //! - `config`   — non-secret settings on disk (F1, F3)
 //! - `secrets`  — password in the system keyring (F1, F2)
 //! - `api`      — Proxmox API client, login ticket, VM list, power (F2, F5, F6)
 //! - `spice`    — SPICE .vv file + remote-viewer launch (F7)
+//! - `tray`     — the system tray icon and its menu (F10)
 //! - `commands` — Tauri commands the frontend calls
 //! - `error`    — shared error type
 
@@ -14,6 +16,7 @@ mod config;
 mod error;
 mod secrets;
 mod spice;
+mod tray;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -98,6 +101,8 @@ pub fn run() {
             commands::connect,
             commands::remove_connection,
             commands::list_guests,
+            commands::get_sort,
+            commands::set_sort,
             commands::power_action,
             commands::open_spice,
             commands::open_admin_panel,
@@ -121,8 +126,30 @@ pub fn run() {
             if window.label() != "main" {
                 return;
             }
-            if let tauri::WindowEvent::Focused(focused) = event {
-                let _ = tauri::Emitter::emit(window, "window-focus", *focused);
+            match event {
+                tauri::WindowEvent::Focused(focused) => {
+                    let _ = tauri::Emitter::emit(window, "window-focus", *focused);
+                }
+                // F10 Q4.2: closing the window hides it to the tray instead
+                // of quitting, which is the only reading under which the
+                // tray's whole point ("starting a VM does not need the
+                // window") is true. Quit is a tray menu item.
+                //
+                // No tray, no trap: if the icon could not be created there is
+                // nothing to hide to, so the close is allowed through and the
+                // app quits as it did before F10. `tray_by_id` is that test,
+                // so the answer needs no flag in `AppState`.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let app = tauri::Manager::app_handle(window).clone();
+                    if tray::exists(&app) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        // The menu is about to become the only way to act, so
+                        // this is one of the three moments it is rebuilt.
+                        tray::refresh(&app);
+                    }
+                }
+                _ => {}
             }
         })
         .setup(|app| {
@@ -132,10 +159,10 @@ pub fn run() {
             // children out itself.
             #[cfg(target_os = "linux")]
             commands::install_native_tabs(app.handle());
-            // Everywhere else the admin panel is its own window, so there is
-            // no strip to install and nothing here touches `app`.
-            #[cfg(not(target_os = "linux"))]
-            let _ = app;
+            // F10: the tray, with an empty guest list — F16 means the app
+            // always starts on the launcher with no session, so there is
+            // nothing to list yet.
+            tray::install(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

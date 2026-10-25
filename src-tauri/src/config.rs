@@ -25,8 +25,37 @@ pub struct Config {
     /// Local `remote-viewer` binary (F7). App-level, not per host.
     #[serde(default = "default_viewer")]
     pub remote_viewer_path: String,
+    /// Which column Home sorts by (F26, Q26.2). One of `SORT_COLUMNS`;
+    /// anything else is read as the default, so a hand-edited file cannot
+    /// leave the list in a state the UI has no ordering for.
+    #[serde(default = "default_sort")]
+    pub sort: String,
+    /// Whether that sort runs descending (F26).
+    #[serde(default)]
+    pub sort_desc: bool,
     /// Saved hosts. v1 writes one. Keep last — see the module note on ordering.
     pub hosts: Vec<HostConfig>,
+}
+
+/// The columns Home can sort by (F26 Q26.1).
+///
+/// The four whose order is stable. CPU and RAM are deliberately absent: they
+/// move on every 30s refresh, so sorting by them would reshuffle rows under
+/// the cursor. This is also the allow-list `set_sort` checks, so the frontend
+/// cannot write an unknown column into the config file.
+pub const SORT_COLUMNS: &[&str] = &["vmid", "name", "node", "status"];
+
+fn default_sort() -> String {
+    "vmid".into()
+}
+
+/// The stored sort, with anything unrecognised falling back to the default.
+pub fn sort_or_default(sort: &str) -> &str {
+    if SORT_COLUMNS.contains(&sort) {
+        sort
+    } else {
+        "vmid"
+    }
 }
 
 /// One Proxmox connection.
@@ -74,6 +103,8 @@ impl Config {
         Self {
             default: host.name.clone(),
             remote_viewer_path: default_viewer(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host],
         }
     }
@@ -235,6 +266,9 @@ mod tests {
         let array = text.find("[[hosts]]").expect("array of tables");
         assert!(text.find("default").unwrap() < array);
         assert!(text.find("remote_viewer_path").unwrap() < array);
+        // F26's keys are scalars too, so they must also precede the array.
+        assert!(text.find("sort").unwrap() < array);
+        assert!(text.find("sort_desc").unwrap() < array);
     }
 
     #[test]
@@ -252,9 +286,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.remote_viewer_path, default_viewer());
+        // F26 Q26.2: a config file written before the sort existed must load
+        // unchanged. This block is exactly such a file.
+        assert_eq!(cfg.sort, "vmid");
+        assert!(!cfg.sort_desc);
         let h = cfg.host(&cfg.default).unwrap();
         assert_eq!(h.port, 8006);
         assert_eq!(h.cert_fingerprint, None);
+    }
+
+    #[test]
+    fn sort_round_trips() {
+        let mut cfg = Config::single(host());
+        cfg.sort = "node".into();
+        cfg.sort_desc = true;
+        let back = parse(&render(&cfg).unwrap()).unwrap();
+        assert_eq!(back.sort, "node");
+        assert!(back.sort_desc);
+    }
+
+    /// A hand-edited file naming a column the UI has no ordering for must not
+    /// leave the list in a state it cannot render. CPU is the realistic
+    /// mistake: it looks sortable and is deliberately not (Q26.1).
+    #[test]
+    fn an_unknown_sort_column_falls_back() {
+        assert_eq!(sort_or_default("name"), "name");
+        assert_eq!(sort_or_default("vmid"), "vmid");
+        assert_eq!(sort_or_default("cpu"), "vmid");
+        assert_eq!(sort_or_default(""), "vmid");
+        assert_eq!(sort_or_default("../etc/passwd"), "vmid");
+        for c in SORT_COLUMNS {
+            assert_eq!(sort_or_default(c), *c);
+        }
     }
 
     #[test]
@@ -271,6 +334,8 @@ mod tests {
         let cfg = Config {
             default: "work".into(),
             remote_viewer_path: default_viewer(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host(), other],
         };
         assert_eq!(cfg.host(&cfg.default).unwrap().host, "10.0.0.5");
@@ -281,6 +346,8 @@ mod tests {
         let cfg = Config {
             default: "missing".into(),
             remote_viewer_path: default_viewer(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host()],
         };
         assert!(cfg.host(&cfg.default).is_err());
@@ -308,6 +375,8 @@ mod tests {
         let mut cfg = Config {
             default: "work".into(),
             remote_viewer_path: default_viewer(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host(), work],
         };
         let mut changed = host();
@@ -356,6 +425,8 @@ mod tests {
         let mut cfg = Config {
             default: "work".into(),
             remote_viewer_path: default_viewer(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host(), work],
         };
         cfg.remove_host("work").unwrap();
@@ -380,6 +451,8 @@ mod tests {
         let mut cfg = Config {
             default: "main".into(),
             remote_viewer_path: "/opt/bin/remote-viewer".into(),
+            sort: default_sort(),
+            sort_desc: false,
             hosts: vec![host(), work],
         };
         cfg.remove_host("main").unwrap();

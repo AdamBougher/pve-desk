@@ -168,6 +168,25 @@ Secret Service keyring for saved passwords. Ctrl-C to quit.
   `xprop -root _NET_CLIENT_LIST` first. The harness page is retitled
   `pve-desk-driver` precisely so it can't be confused with the real app,
   which also titles its window `pve-desk`.
+- **Synthetic clicks do not reach the app on this desktop.** The session is
+  Plasma *Wayland* and the app runs under XWayland, so the X server's pointer
+  is bookkeeping the compositor does not follow: `XTEST` warps and button
+  events report success, `query_pointer` confirms the pointer is on the right
+  widget to the pixel, and the UI never reacts. Verified 2026-10-24 against
+  a real window, activated and focused, clicking Connect. **Window *state*
+  over X does work** — `WM_DELETE_WINDOW`, focus, `_NET_ACTIVE_WINDOW` — which
+  is what F23's and F10's diagnostics used. So: drive the DOM with
+  `driver.mjs`, drive windows with X protocol, and get a human to click the
+  real UI. Do not spend a session building a clicker.
+- **`import -window <id>` captures a window that is not on screen.** Plasma
+  composites, so a redirected pixmap exists even when the window is behind
+  others. A capture succeeding is therefore *not* evidence the window is
+  visible or clickable — check `root.query_pointer().child` for that.
+- **`app-shot.sh`'s `import -window pve-desk` no longer matches** (noted
+  2026-10-24). F21 moved the title into `_NET_WM_NAME` ("pve-desk 1.1.0 —
+  Home") and leaves `WM_NAME` empty, which is what `import -window <name>`
+  matches on. Capture by window id resolved from `_NET_CLIENT_LIST` and
+  `_NET_WM_PID` instead, the way `driver.mjs` already does.
 - **Never `pkill -x pve-desk`.** It matches by process name and kills any
   AppImage or dev build the user already had open. `app-shot.sh` kills only
   the pid it started. (This was learned the hard way — it closed the user's

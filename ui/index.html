@@ -81,13 +81,33 @@
         <input id="search" type="search" placeholder="Search guests"
                aria-label="Search guests by name, ID, node or tag"
                autocomplete="off">
+        <!-- F26 Q26.3: status is the one field the search box cannot reach,
+             so it gets a control. Tags need none — search already matches
+             them. Composes with the search box; the count reads "N of M". -->
+        <select id="status-filter" aria-label="Filter guests by status">
+          <option value="">Any status</option>
+          <option value="running">Running</option>
+          <option value="stopped">Stopped</option>
+        </select>
         <button id="refresh">Refresh</button>
         <button id="logout">Log out</button>
       </div>
     </header>
     <table>
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Type</th><th>Node</th><th>Status</th><th>CPU</th><th>RAM</th><th>Power</th></tr>
+        <!-- F26 Q26.1: ID, Name, Node and Status sort. Type, CPU, RAM and
+             Power do not — CPU and RAM move every 30s, and sorting by them
+             would reshuffle rows under the cursor. -->
+        <tr>
+          <th data-sort="vmid"><button type="button">ID</button></th>
+          <th data-sort="name"><button type="button">Name</button></th>
+          <th>Type</th>
+          <th data-sort="node"><button type="button">Node</button></th>
+          <th data-sort="status"><button type="button">Status</button></th>
+          <th>CPU</th>
+          <th>RAM</th>
+          <th>Power</th>
+        </tr>
       </thead>
       <tbody id="guests"></tbody>
     </table>

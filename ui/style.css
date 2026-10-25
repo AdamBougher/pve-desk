@@ -29,6 +29,50 @@ td.actions { display: flex; gap: 4px; }
 td.actions button { padding: 1px 8px; font-size: 0.9em; }
 .st-running { color: #2a9d4b; }
 .st-stopped { color: #888; }
+
+/* F26: a sortable header is a button that looks like the heading it
+   replaces, so the row of headers still reads as headers. */
+th[data-sort] { padding: 0; }
+th[data-sort] > button {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-weight: bold;
+}
+th[data-sort] > button:hover { background: #8882; }
+th[data-sort] > button:focus-visible { outline: 2px solid #e57000; outline-offset: -2px; }
+/* The arrow is drawn from the same state as aria-sort — see
+   markSortedHeader(), which sets both together. */
+th[data-sort] > button[data-dir="asc"]::after { content: " \2191"; }
+th[data-sort] > button[data-dir="desc"]::after { content: " \2193"; }
+
+/* F25: the disclosure sits in the ID cell and keeps the column's width. */
+button.disclose {
+  all: unset;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+button.disclose:focus-visible { outline: 2px solid #e57000; outline-offset: 1px; }
+button.disclose::before { content: "\25B8 "; opacity: 0.6; }
+button.disclose[aria-expanded="true"]::before { content: "\25BE "; opacity: 0.6; }
+
+/* F25: the detail strip, one row spanning the table under its guest. */
+tr.detail > td { background: #8881; padding: 4px 8px 8px 28px; }
+tr.detail dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 20px;
+  margin: 0;
+  font-size: 0.9em;
+}
+tr.detail dt { opacity: 0.6; }
+tr.detail dt::after { content: ":"; }
+tr.detail dd { margin: 0 12px 0 0; font-variant-numeric: tabular-nums; }
 #status { opacity: 0.7; margin: 0; font-size: 0.9em; }
 
 /* F16: launcher */

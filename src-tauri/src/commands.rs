@@ -59,6 +59,9 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
     set_admin_tab_enabled(app, false);
+    // F10: the tray must not keep offering actions against a session that is
+    // gone — with the window hidden, the menu is all there is to go on.
+    crate::tray::clear(app);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -194,7 +197,61 @@ pub async fn connect(
         config::save(&cfg)?;
     }
     // TODO(F2): spawn a background task that re-logs-in every ~90 min.
+    // F10: a session exists now, so the tray menu has guests to list.
+    crate::tray::refresh(&app);
     Ok(ConnectOutcome::Connected)
+}
+
+/// Home's saved sort (F26). Separate from the config file's shape so the
+/// frontend reads two plain fields rather than the whole `Config`.
+#[derive(serde::Serialize)]
+pub struct Sort {
+    pub column: String,
+    pub desc: bool,
+}
+
+/// F26: the remembered sort, or the default when nothing is saved yet.
+///
+/// Returns the default rather than an error when there is no config file at
+/// all — Home can be reached only through a connection, but a missing file
+/// is not a reason to refuse to order a list.
+#[tauri::command]
+pub fn get_sort() -> Result<Sort> {
+    let Some(cfg) = config::load()? else {
+        return Ok(Sort {
+            column: config::sort_or_default("").to_string(),
+            desc: false,
+        });
+    };
+    Ok(Sort {
+        column: config::sort_or_default(&cfg.sort).to_string(),
+        desc: cfg.sort_desc,
+    })
+}
+
+/// F26 Q26.2: remember the sort across restarts.
+///
+/// `column` is checked against `config::SORT_COLUMNS` before anything is
+/// written, so the frontend cannot put a column the UI has no ordering for
+/// into the config file — the same shape of guard as the power allow-list,
+/// for the same reason.
+#[tauri::command]
+pub fn set_sort(column: String, desc: bool) -> Result<()> {
+    if !config::SORT_COLUMNS.contains(&column.as_str()) {
+        return Err(Error::Config(format!("not a sortable column: {column:?}")));
+    }
+    let Some(mut cfg) = config::load()? else {
+        // Nothing saved yet means no connection has been added, so there is
+        // no file to add a preference to. Not an error: the sort still works
+        // for this session, it just has nowhere to be remembered.
+        return Ok(());
+    };
+    if cfg.sort == column && cfg.sort_desc == desc {
+        return Ok(());
+    }
+    cfg.sort = column;
+    cfg.sort_desc = desc;
+    config::save(&cfg)
 }
 
 /// The "Add a connection" form (F16).
@@ -817,6 +874,9 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
 pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clear();
     set_admin_tab_enabled(&app, false);
+    // F10: no session, so nothing for the tray to list. `clear` rather than
+    // `refresh`, because there is no longer anything to ask.
+    crate::tray::clear(&app);
     // Closed, not hidden: the webview holds a session cookie, and the next
     // login may be a different connection entirely.
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {

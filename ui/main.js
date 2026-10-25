@@ -59,6 +59,10 @@ function clearGuests() {
   rowsByKey.clear();
   $("guests").replaceChildren();
   $("search").value = "";
+  // F26: the filter is a view of a list that no longer exists, so it goes
+  // back to "any" with the list. The sort does not — it is remembered on
+  // purpose (Q26.2) and survives a log out as it survives a restart.
+  $("status-filter").value = "";
   $("count").textContent = "";
   $("main").hidden = true;
 }
@@ -317,6 +321,50 @@ function fmtMem(bytes) {
   return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
 
+// F25: the detail row's numbers run from megabytes to terabytes, a range
+// fmtMem has no scale for — it renders GiB to one decimal, which is right
+// for a RAM column and useless for a 44 MB network total. fmtMem is left
+// exactly as it is on purpose: F32 (#18) owns the RAM column's units and is
+// still open, so changing it here would be doing that feature's work and
+// pre-empting its decision.
+function fmtBytes(bytes) {
+  if (bytes == null) return "–";
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${i > 0 && n < 10 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
+}
+
+// F25: uptime arrives in seconds. A stopped guest reports 0, which is not a
+// duration, so it reads as unknown rather than "0m".
+function fmtUptime(secs) {
+  if (!secs) return "–";
+  const days = Math.floor(secs / 86400);
+  const hours = Math.floor((secs % 86400) / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+// F25: a QEMU guest's `disk` is 0 because the host cannot see inside its
+// filesystem — Proxmox reports zero rather than a figure. Printing "0 B"
+// would be a wrong answer where this is a missing one, so it reads as
+// unknown and maxdisk is still shown. A container reports real usage.
+function diskText(g) {
+  const used = g.kind === "qemu" && !g.disk ? "–" : fmtBytes(g.disk);
+  return `${used} / ${fmtBytes(g.maxdisk)}`;
+}
+
+function netText(g) {
+  return `↑ ${fmtBytes(g.netout)}   ↓ ${fmtBytes(g.netin)}`;
+}
+
 function kindLabel(kind) {
   return kind === "qemu" ? "VM" : "LXC";
 }
@@ -332,6 +380,83 @@ function haystack(g) {
     g.tags ?? "",
     kindLabel(g.kind),
   ].join(" ").toLowerCase();
+}
+
+// ---- F26: sorting ----
+//
+// Mirrors `config::SORT_COLUMNS` in Rust, which is the real guard — a column
+// this list does not hold is refused by `set_sort` before it can reach the
+// config file. This copy only keeps the UI from offering one.
+const SORT_COLUMNS = ["vmid", "name", "node", "status"];
+
+let sortColumn = "vmid";
+let sortDesc = false;
+
+// Q26.1: the four columns whose order is stable. Ties break on vmid so the
+// comparator is total — without that, two guests sharing a status could swap
+// places between refreshes, which is exactly the row-moving-under-the-cursor
+// the first scenario forbids. The tie-break is deliberately outside the
+// direction flip: reversing it too would reintroduce the swap.
+function compareGuests(a, b) {
+  const dir = sortDesc ? -1 : 1;
+  let r = 0;
+  if (sortColumn === "name") {
+    r = (a.name ?? "").localeCompare(b.name ?? "", undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  } else if (sortColumn === "node") {
+    r = a.node.localeCompare(b.node);
+  } else if (sortColumn === "status") {
+    r = a.status.localeCompare(b.status);
+  } else {
+    r = a.vmid - b.vmid;
+  }
+  return r * dir || a.vmid - b.vmid;
+}
+
+// The arrow and aria-sort are set from the same state, so what a screen
+// reader is told and what the header shows cannot disagree.
+function markSortedHeader() {
+  for (const th of document.querySelectorAll("th[data-sort]")) {
+    const active = th.dataset.sort === sortColumn;
+    th.setAttribute("aria-sort", active ? (sortDesc ? "descending" : "ascending") : "none");
+    th.firstElementChild.dataset.dir = active ? (sortDesc ? "desc" : "asc") : "";
+  }
+}
+
+function sortBy(column) {
+  if (!SORT_COLUMNS.includes(column)) return;
+  // Clicking the column already sorted reverses it; a different column
+  // starts ascending.
+  if (column === sortColumn) {
+    sortDesc = !sortDesc;
+  } else {
+    sortColumn = column;
+    sortDesc = false;
+  }
+  markSortedHeader();
+  guests.sort(compareGuests);
+  syncRows();
+  // Q26.2: remembered across restarts. Deliberately not awaited — a config
+  // file that cannot be written must not stop the list reordering now, and
+  // there is nothing useful to tell the user about it.
+  invoke("set_sort", { column: sortColumn, desc: sortDesc }).catch(() => {});
+}
+
+// Read the remembered sort once at startup. A missing or unreadable config
+// is not worth a message: the default order still works.
+async function loadSort() {
+  try {
+    const saved = await invoke("get_sort");
+    if (saved && SORT_COLUMNS.includes(saved.column)) {
+      sortColumn = saved.column;
+      sortDesc = !!saved.desc;
+    }
+  } catch {
+    // Keep the defaults.
+  }
+  markSortedHeader();
 }
 
 // ---- F6: power actions ----
@@ -451,7 +576,18 @@ function createRowEntry(g) {
   const powerTd = document.createElement("td");
   powerTd.className = "actions";
 
-  idCell.textContent = g.vmid;
+  // F25 Q25.1: the disclosure lives in the ID cell. Every guest has a vmid,
+  // the column is narrow and its content never changes, and it keeps clear
+  // of the Name and Status cells that F34 (#20) and F31 (#17) will rework.
+  // A button, not a click handler on the row: focusable, announced, and it
+  // cannot swallow a click meant for a power button.
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "disclose";
+  toggle.textContent = g.vmid;
+  toggle.setAttribute("aria-expanded", "false");
+  toggle.addEventListener("click", () => toggleDetail(g.vmid));
+  idCell.append(toggle);
   nameCell.textContent = g.name ?? "";
   typeCell.textContent = kindLabel(g.kind);
   nodeCell.textContent = g.node;
@@ -483,7 +619,81 @@ function createRowEntry(g) {
     memText: memText(g),
     working: busy.has(guestKey(g)),
     haystack: haystack(g),
+    // F25: the detail strip, built on first open and kept afterwards so
+    // reopening costs nothing. `open` is its own flag rather than being read
+    // off the DOM, because `hidden` on the row means something else — the
+    // search filter uses it.
+    toggle,
+    open: false,
+    detailTr: null,
+    detailCells: null,
+    detailText: null,
   };
+}
+
+// F25: one detail strip for a guest, spanning the table under its row.
+function buildDetail(entry, g) {
+  const tr = document.createElement("tr");
+  tr.className = "detail";
+  const td = document.createElement("td");
+  td.colSpan = 8;
+  const dl = document.createElement("dl");
+  const cells = {};
+  for (const [key, label] of [
+    ["uptime", "Uptime"],
+    ["disk", "Disk"],
+    ["net", "Network"],
+  ]) {
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    cells[key] = dd;
+    dl.append(dt, dd);
+  }
+  td.append(dl);
+  tr.append(td);
+  entry.detailTr = tr;
+  entry.detailCells = cells;
+  entry.detailText = {};
+  fillDetail(entry, g);
+}
+
+// Diffed the same way patchRow() diffs its cells (F22): an open detail whose
+// values round to the same text writes nothing on a refresh.
+function fillDetail(entry, g) {
+  const values = {
+    uptime: fmtUptime(g.uptime),
+    disk: diskText(g),
+    net: netText(g),
+  };
+  for (const key of Object.keys(values)) {
+    if (entry.detailText[key] !== values[key]) {
+      entry.detailCells[key].textContent = values[key];
+      entry.detailText[key] = values[key];
+    }
+  }
+}
+
+// F25: open or close one guest's detail.
+//
+// Synchronous and unable to fail, because every value shown comes from the
+// listing the table was already drawn from — Q25.2 and Q25.3 both went
+// against a per-guest call, which is what makes opening a detail free.
+// Placement is left to syncRows(), so row order has exactly one owner.
+function toggleDetail(vmid) {
+  const entry = rowsByKey.get(vmid);
+  if (!entry) return;
+  if (!entry.open) {
+    const g = guests.find((x) => x.vmid === vmid);
+    // Clicked between a refresh dropping the guest and the row going: there
+    // is nothing to show, so leave it closed.
+    if (!g) return;
+    if (entry.detailTr) fillDetail(entry, g);
+    else buildDetail(entry, g);
+  }
+  entry.open = !entry.open;
+  entry.toggle.setAttribute("aria-expanded", String(entry.open));
+  syncRows();
 }
 
 // Writes only the cells whose value actually differs from the last patch.
@@ -536,27 +746,48 @@ function patchRow(entry, g) {
   }
   entry.status = g.status;
   entry.working = working;
+
+  // F25: an open detail tracks the 30s refresh. A closed one is not touched,
+  // so a detail nobody opened costs nothing per refresh.
+  if (entry.open && entry.detailTr) fillDetail(entry, g);
 }
 
 // Toggles visibility against each row's precomputed haystack rather than
 // filtering the guest list and rebuilding — the search-box scenario.
 function applyFilter() {
   const query = $("search").value.trim().toLowerCase();
+  // F26 Q26.3: composes with the search box rather than replacing it. The
+  // cached status is the one patchRow() keeps current, so this needs no
+  // lookup into `guests`.
+  const wantStatus = $("status-filter").value;
   let shown = 0;
   for (const entry of rowsByKey.values()) {
-    const match = !query || entry.haystack.includes(query);
+    const match = (!query || entry.haystack.includes(query)) &&
+      (!wantStatus || entry.status === wantStatus);
     if (entry.tr.hidden !== !match) entry.tr.hidden = !match;
+    // F25: a detail is part of its guest's row, so it hides with it. Without
+    // this it would sit under whichever row happened to follow.
+    if (entry.detailTr && entry.detailTr.hidden !== !match) {
+      entry.detailTr.hidden = !match;
+    }
     if (match) shown++;
   }
-  $("count").textContent = query ? `${shown} of ${rowsByKey.size}` : `${rowsByKey.size}`;
+  const narrowed = query || wantStatus;
+  $("count").textContent = narrowed
+    ? `${shown} of ${rowsByKey.size}`
+    : `${rowsByKey.size}`;
 }
 
 // Patches existing rows, creates rows for new guests, drops rows for gone
 // ones, and reorders only a row whose position actually moved. `guests` is
 // already sorted by vmid (refresh()), so this walk is the intended order.
+// Returns a note for the caller to show, or null. The note is handed back
+// rather than written here because refresh() writes its own "Updated" line
+// straight afterwards, which overwrites anything this function says.
 function syncRows() {
   const tbody = $("guests");
   const seen = new Set();
+  let note = null;
   let prevTr = null;
   for (const g of guests) {
     seen.add(g.vmid);
@@ -570,14 +801,32 @@ function syncRows() {
     const wantAfter = prevTr ? prevTr.nextSibling : tbody.firstChild;
     if (wantAfter !== entry.tr) tbody.insertBefore(entry.tr, wantAfter);
     prevTr = entry.tr;
+    // F25: an open detail is part of its guest's position — placed directly
+    // after that row and then used as the anchor for the next guest. That is
+    // what keeps it under its own row when F26's sort reorders the list, and
+    // it is why placement lives here rather than in toggleDetail().
+    if (entry.open && entry.detailTr) {
+      const afterRow = prevTr.nextSibling;
+      if (afterRow !== entry.detailTr) tbody.insertBefore(entry.detailTr, afterRow);
+      prevTr = entry.detailTr;
+    } else if (entry.detailTr?.parentNode) {
+      entry.detailTr.remove();
+    }
   }
   for (const [key, entry] of rowsByKey) {
     if (!seen.has(key)) {
+      // F25: a detail open on a guest that has left the listing says so.
+      // Vanishing without a word would read as the app losing the row.
+      if (entry.open) {
+        note = `${entry.name || key} is no longer listed — its detail closed.`;
+      }
       entry.tr.remove();
+      entry.detailTr?.remove();
       rowsByKey.delete(key);
     }
   }
   applyFilter();
+  return note;
 }
 
 async function refresh() {
@@ -586,17 +835,31 @@ async function refresh() {
     // Q5.3: templates are hidden outright, so drop them here rather than in
     // syncRows() — they shouldn't be reachable through the search box either.
     guests = all.filter((g) => g.template !== 1);
-    guests.sort((a, b) => a.vmid - b.vmid);
-    syncRows();
-    status(`Updated ${new Date().toLocaleTimeString()}`);
+    // F26: was a fixed vmid order. syncRows() reorders rows from this array,
+    // so the sort is the whole mechanism.
+    guests.sort(compareGuests);
+    // A note from syncRows() wins: it is about something that just happened
+    // to a row, which matters more than the timestamp.
+    const note = syncRows();
+    status(note ?? `Updated ${new Date().toLocaleTimeString()}`);
   } catch (err) {
     status(`Refresh failed: ${err}`);
   }
 }
 
 $("search").addEventListener("input", applyFilter);
+$("status-filter").addEventListener("change", applyFilter);
 $("refresh").addEventListener("click", refresh);
+
+// F26: each sortable header carries its column in data-sort; the button
+// inside it is what takes the click.
+for (const th of document.querySelectorAll("th[data-sort]")) {
+  th.firstElementChild.addEventListener("click", () => sortBy(th.dataset.sort));
+}
 
 
 // ---- F16: always start on the launcher, never auto-connect ----
+// F26: the remembered sort is read once here, before any list exists, so the
+// first refresh is already in the right order.
+loadSort();
 showLauncher();

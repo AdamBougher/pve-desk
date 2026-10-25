@@ -64,15 +64,25 @@ const FIXTURES = {
   hide_admin_panel: null,
   open_admin_panel: null,
   open_spice: null,
+  // F26: the remembered sort. set_sort returns nothing; the stub records the
+  // call, which is what the test asserts on.
+  get_sort: { column: "vmid", desc: false },
+  set_sort: null,
   list_guests: [
     {
       vmid: 100, name: "truenas", kind: "qemu", node: "pve", status: "running",
       cpu: 0.04, maxcpu: 4, mem: 8589934592, maxmem: 17179869184,
       template: 0, tags: "storage;prod",
+      // F25: a QEMU guest reports disk 0 — the host cannot see inside its
+      // filesystem — so the detail must read that as unknown, not "0 B".
+      uptime: 275400, disk: 0, maxdisk: 34359738368,
+      netin: 1181116006, netout: 46137344,
     },
     {
       vmid: 101, name: "docker", kind: "lxc", node: "pve", status: "stopped",
       cpu: 0, maxcpu: 2, mem: 0, maxmem: 2147483648, template: 0, tags: "",
+      // Stopped: uptime 0 is not a duration. A container reports real disk.
+      uptime: 0, disk: 1288490188, maxdisk: 8589934592,
     },
     // Neither running nor stopped: must get no power buttons at all.
     {
@@ -449,14 +459,14 @@ async function smoke() {
     (await exec(
       `return [...document.querySelectorAll("#guests tr")]
          .find(r=>r.textContent.includes("truenas"))
-         .querySelectorAll("button").length`,
+         .querySelectorAll("td.actions button").length`,
     )) === 2,
   );
   check(
     "stopped guest has Start only",
     (await exec(
       `var r=[...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
-       var b=r.querySelectorAll("button");
+       var b=r.querySelectorAll("td.actions button");
        return b.length===1 && b[0].textContent.trim()==="Start"`,
     )),
   );
@@ -465,7 +475,7 @@ async function smoke() {
     (await exec(
       `return [...document.querySelectorAll("#guests tr")]
          .find(r=>r.textContent.includes("paused-vm"))
-         .querySelectorAll("button").length`,
+         .querySelectorAll("td.actions button").length`,
     )) === 0,
   );
 
@@ -477,7 +487,10 @@ async function smoke() {
     var truenas = [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("truenas"));
     truenas.dataset.probe = "untouched";
     var docker = [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
-    docker.querySelector("button").dataset.probe = "original-button";
+    // Scoped to td.actions: F25 added a disclosure button to the ID cell, so
+    // a bare "button" here would tag that one instead — which is never
+    // rebuilt, and the check below would pass while testing nothing.
+    docker.querySelector("td.actions button").dataset.probe = "original-button";
   `);
 
   // An identical refresh: same fixture, re-fetched. Click Refresh directly
@@ -490,7 +503,7 @@ async function smoke() {
   );
   check(
     "identical refresh: power button not rebuilt",
-    (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).querySelector("button").dataset.probe`)) === "original-button",
+    (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).querySelector("td.actions button").dataset.probe`)) === "original-button",
   );
 
   // Now change ONE guest (docker: stopped -> running) and refresh again.
@@ -508,7 +521,7 @@ async function smoke() {
     "single guest change: its status and buttons updated",
     (await exec(
       `var r=[...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
-       var b=[...r.querySelectorAll("button")].map(x=>x.textContent.trim());
+       var b=[...r.querySelectorAll("td.actions button")].map(x=>x.textContent.trim());
        return r.textContent.includes("running") && b.join(",")==="Shutdown,Stop"`,
     )),
   );
@@ -537,6 +550,170 @@ async function smoke() {
   check("non-matching rows still in the DOM, just hidden", (await count("#guests tr")) === 4);
   await type("#search", "");
   check("filter cleared", (await count("#guests tr:not([hidden])")) === 4);
+
+  console.log("a guest's detail (F25)");
+  // The detail is a second <tr> that a guest owns, so "#guests tr" counts
+  // change — every check here says which rows it means.
+  const detailRows = async () => await count("#guests tr.detail");
+  const openDocker = `[...document.querySelectorAll("#guests tr")]
+      .find(r=>r.textContent.includes("docker"))
+      .querySelector("button.disclose")`;
+  check("no detail is open to start with", (await detailRows()) === 0);
+  const callsBefore = (await calls()).length;
+  await exec(`${openDocker}.click(); return true`);
+  check("opening one adds a detail row", (await detailRows()) === 1);
+  // The scenario: the values come off the listing already fetched.
+  check(
+    "opening it made no API call",
+    (await calls()).length === callsBefore,
+    `${(await calls()).length - callsBefore} call(s) made`,
+  );
+  check(
+    "the detail sits directly under its own guest",
+    (await exec(`var r=[...document.querySelectorAll("#guests tr")]
+        .find(r=>r.textContent.includes("docker"));
+      return r.nextElementSibling.classList.contains("detail")`)),
+  );
+  check(
+    "aria-expanded tracks the disclosure",
+    (await exec(`return ${openDocker}.getAttribute("aria-expanded")`)) === "true",
+  );
+  // A container reports real disk usage; 1288490188 B is 1.2 GiB of 8 GiB.
+  check(
+    "a container shows its real disk usage",
+    (await exec(`return document.querySelector("#guests tr.detail").textContent`))
+      .includes("1.2 GiB / 8.0 GiB"),
+    await exec(`return document.querySelector("#guests tr.detail").textContent`),
+  );
+  // Stopped, so uptime 0 is not a duration.
+  check(
+    "a stopped guest's uptime reads as unknown",
+    (await exec(`return document.querySelector("#guests tr.detail").textContent`))
+      .includes("\u2013"),
+  );
+  // F25's own scenario: a QEMU guest's disk is 0 because the host cannot see
+  // inside it, and 0 must not be shown as a figure.
+  await exec(`${openDocker}.click(); return true`);
+  await exec(`[...document.querySelectorAll("#guests tr")]
+      .find(r=>r.textContent.includes("truenas"))
+      .querySelector("button.disclose").click(); return true`);
+  const vmDetail = await exec(`return document.querySelector("#guests tr.detail").textContent`);
+  check(
+    "a VM's zero disk reads as unknown, with maxdisk still shown",
+    vmDetail.includes("\u2013 / 32 GiB"),
+    vmDetail,
+  );
+  check("its uptime is a duration", vmDetail.includes("3d 4h"), vmDetail);
+  check("network totals are shown", vmDetail.includes("1.1 GiB"), vmDetail);
+
+  // Hidden with its guest, not left behind under another row.
+  await type("#search", "docker");
+  check(
+    "a detail hides with its guest",
+    (await count("#guests tr.detail:not([hidden])")) === 0,
+  );
+  await type("#search", "");
+  check(
+    "and comes back with it",
+    (await count("#guests tr.detail:not([hidden])")) === 1,
+  );
+
+  // Survives a refresh, still under its own row — the F22 walk is what this
+  // is really testing.
+  await click("#refresh");
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh");
+  check(
+    "an open detail survives a refresh, under its own guest",
+    (await exec(`var r=[...document.querySelectorAll("#guests tr")]
+        .find(r=>r.textContent.includes("truenas"));
+      return r.nextElementSibling.classList.contains("detail")`)),
+  );
+  check("still exactly one detail row", (await detailRows()) === 1);
+
+  // A guest that leaves the listing takes its detail with it and says so.
+  await exec(`window.__RESPONSES.list_guests =
+    window.__RESPONSES.list_guests.filter(g=>g.vmid!==100); return true`);
+  await click("#refresh");
+  await waitUntil(async () => (await detailRows()) === 0, "the detail to close");
+  check("a vanished guest's detail closes", (await detailRows()) === 0);
+  check(
+    "and the user is told why",
+    (await text("#status")).includes("no longer listed"),
+    await text("#status"),
+  );
+  check("the list is still usable", (await count("#guests tr")) === 3);
+  await exec(`window.__RESPONSES.list_guests = ${JSON.stringify(FIXTURES.list_guests)}; return true`);
+  await click("#refresh");
+  await waitUntil(async () => (await count("#guests tr")) === 4, "all rows back");
+
+  console.log("sorting and filters (F26)");
+  const ids = async () =>
+    await exec(`return [...document.querySelectorAll("#guests tr:not(.detail)")]
+      .map(r=>r.cells[0].textContent.trim()).join(",")`);
+  check("sorted by vmid to start with", (await ids()) === "100,101,102,103", await ids());
+  const sortHeader = (col) => `document.querySelector('th[data-sort="${col}"] button')`;
+  await exec(`${sortHeader("name")}.click(); return true`);
+  // docker, paused-vm, truenas, and the hostile <img ...> name sorts first.
+  check(
+    "sorting by name reorders the rows",
+    (await ids()) === "103,101,102,100",
+    await ids(),
+  );
+  check(
+    "the header says which way",
+    (await exec(`return document.querySelector('th[data-sort="name"]').getAttribute("aria-sort")`)) === "ascending",
+  );
+  check(
+    "the sort was saved",
+    (await calls()).some((c) => c.cmd === "set_sort" && c.args.column === "name" && c.args.desc === false),
+    JSON.stringify((await calls()).filter((c) => c.cmd === "set_sort")),
+  );
+  await exec(`${sortHeader("name")}.click(); return true`);
+  check("clicking the same column reverses it", (await ids()) === "100,102,101,103", await ids());
+  check(
+    "and the header follows",
+    (await exec(`return document.querySelector('th[data-sort="name"]').getAttribute("aria-sort")`)) === "descending",
+  );
+  // The scenario: the order holds across a refresh.
+  await click("#refresh");
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh");
+  check("the order holds across a refresh", (await ids()) === "100,102,101,103", await ids());
+  // Q26.1: CPU and RAM are deliberately not sortable.
+  check(
+    "only the four stable columns offer a sort",
+    (await count("th[data-sort]")) === 4 && (await count("th[data-sort] button")) === 4,
+  );
+  check(
+    "CPU and RAM carry no sort control",
+    (await exec(`return [...document.querySelectorAll("thead th")]
+      .filter(th=>["CPU","RAM","Type","Power"].includes(th.textContent.trim()))
+      .every(th=>!th.hasAttribute("data-sort"))`)),
+  );
+  await exec(`${sortHeader("vmid")}.click(); return true`);
+
+  // Q26.3: the status filter composes with the search box.
+  await exec(`var s=document.querySelector("#status-filter");
+    s.value="running"; s.dispatchEvent(new Event("change")); return true`);
+  check(
+    "a status filter narrows the list",
+    (await count("#guests tr:not(.detail):not([hidden])")) === 1,
+  );
+  check("the count reads N of M", (await text("#count")) === "1 of 4", await text("#count"));
+  await type("#search", "truenas");
+  check(
+    "filter and search compose",
+    (await count("#guests tr:not(.detail):not([hidden])")) === 1,
+  );
+  await type("#search", "docker");
+  check(
+    "a stopped guest is excluded by the running filter",
+    (await count("#guests tr:not(.detail):not([hidden])")) === 0,
+  );
+  check("the count follows", (await text("#count")) === "0 of 4", await text("#count"));
+  await type("#search", "");
+  await exec(`var s=document.querySelector("#status-filter");
+    s.value=""; s.dispatchEvent(new Event("change")); return true`);
+  check("clearing both shows everything", (await count("#guests tr:not(.detail):not([hidden])")) === 4);
 
   console.log("force stop asks first");
   // F21: status() now also invokes set_status (mirrored to the native GTK
