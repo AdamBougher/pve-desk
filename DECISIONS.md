@@ -694,6 +694,32 @@ its title and accessible name and no visible word. The issue's scenario said
 red square, and a Start going amber and then green. Not run live, moved to
 #30: the grey ring for a guest on a node that is down.
 
+### RAM reads in MiB, GiB or TiB (F32, 2026-11-21)
+**Q32.1: each side of "used / max" has its own unit**, for example
+"248 MiB / 2.0 GiB". Both numbers stay exact enough to read. Rejected: one
+shared unit taken from max ("0.2 / 2.0 GiB"). It keeps the ratio easy to
+read, but a small used value loses its precision.
+
+**Q32.2: MiB has no decimal** ("512 MiB"). A tenth of a MiB tells the user
+nothing. GiB and TiB keep one decimal.
+
+**Q32.3: a TiB step at 1024 GiB and more.** The boundary belongs to the
+larger unit at each step: 1024 MiB reads "1.0 GiB", 1024 GiB reads "1.0 TiB".
+
+`fmtMem` stays separate from F25's `fmtBytes`. The two have different rules
+(no B or KiB step, a "–" for 0, no decimal in MiB at any size), and the
+RAM column is diffed on its text every patch, so its format must not change
+when the detail row's format changes.
+
+There is no test runner in `ui/`, and adding one is a dependency. The
+scenarios were checked by evaluating `fmtMem` in Node by hand, not by a
+test in the tree.
+
+**Confirmed by the user on the live node, 2026-11-21**: MiB under 1 GiB, GiB
+at 1 GiB and 1.5 GiB, a different unit on each side, and "–" for a stopped
+guest's used RAM. Not run live, moved to #30: the TiB step, which needs a
+guest with 1 TiB of maxmem.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is
