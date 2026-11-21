@@ -321,17 +321,22 @@ $("logout").addEventListener("click", async () => {
 
 // ---- F5: guest list, with F6 power buttons per row ----
 
+// F32: the RAM column. MiB with no decimal below 1 GiB, then GiB and TiB
+// with one decimal. Each side of "used / max" is scaled on its own. The unit
+// is chosen after rounding, so 1023.7 MiB reads "1.0 GiB", not "1024 MiB":
+// each boundary belongs to the larger unit.
 function fmtMem(bytes) {
   if (!bytes) return "–";
-  return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  const mib = Math.round(bytes / 1024 ** 2);
+  if (mib < 1024) return `${mib} MiB`;
+  const gib = (bytes / 1024 ** 3).toFixed(1);
+  if (Number(gib) < 1024) return `${gib} GiB`;
+  return `${(bytes / 1024 ** 4).toFixed(1)} TiB`;
 }
 
-// F25: the detail row's numbers run from megabytes to terabytes, a range
-// fmtMem has no scale for — it renders GiB to one decimal, which is right
-// for a RAM column and useless for a 44 MB network total. fmtMem is left
-// exactly as it is on purpose: F32 (#18) owns the RAM column's units and is
-// still open, so changing it here would be doing that feature's work and
-// pre-empting its decision.
+// F25: the detail row's numbers run from bytes to terabytes and include
+// network totals, so they get their own formatter. fmtMem keeps the RAM
+// column's rules (F32) and does not change when this one does.
 function fmtBytes(bytes) {
   if (bytes == null) return "–";
   if (bytes === 0) return "0 B";
