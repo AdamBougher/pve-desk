@@ -375,8 +375,23 @@ function netText(g) {
   return `↑ ${fmtBytes(g.netout)}   ↓ ${fmtBytes(g.netin)}`;
 }
 
+// F34 Q34.3: only qemu and lxc come back from `?type=vm`; anything else is
+// shown as the server's own word rather than being called a container.
 function kindLabel(kind) {
-  return kind === "qemu" ? "VM" : "LXC";
+  if (kind === "qemu") return "VM";
+  if (kind === "lxc") return "LXC";
+  return kind || "Unknown";
+}
+
+// F34: the type icon after the name. The class picks the glyph (style.css);
+// a type with no glyph keeps an empty slot. The word goes in title and
+// aria-label, the only place the type is on screen since the column went.
+function paintKind(icon, kind) {
+  const glyph = kind === "qemu" || kind === "lxc" ? kind : "other";
+  icon.className = `kind kind-${glyph}`;
+  const label = kindLabel(kind);
+  icon.title = label;
+  icon.setAttribute("aria-label", label);
 }
 
 // Q5.2/F22 Q22.2: match over name, VMID, node and tags. Built once per row,
@@ -675,7 +690,6 @@ function createRowEntry(g) {
   pinCell.append(pinButton);
   const idCell = document.createElement("td");
   const nameCell = document.createElement("td");
-  const typeCell = document.createElement("td");
   const nodeCell = document.createElement("td");
   const statusCell = document.createElement("td");
   const cpuCell = document.createElement("td");
@@ -685,7 +699,7 @@ function createRowEntry(g) {
 
   // F25 Q25.1: the disclosure lives in the ID cell. Every guest has a vmid,
   // the column is narrow and its content never changes, and it keeps clear
-  // of the Name and Status cells that F34 (#20) and F31 (#17) will rework.
+  // of the Name and Status cells, which F34 and F31 reworked.
   // A button, not a click handler on the row: focusable, announced, and it
   // cannot swallow a click meant for a power button.
   const toggle = document.createElement("button");
@@ -695,8 +709,12 @@ function createRowEntry(g) {
   toggle.setAttribute("aria-expanded", "false");
   toggle.addEventListener("click", () => toggleDetail(g.vmid));
   idCell.append(toggle);
-  nameCell.textContent = g.name ?? "";
-  typeCell.textContent = kindLabel(g.kind);
+  const nameText = document.createElement("span");
+  nameText.textContent = g.name ?? "";
+  const kindIcon = document.createElement("span");
+  kindIcon.setAttribute("role", "img");
+  paintKind(kindIcon, g.kind);
+  nameCell.append(nameText, kindIcon);
   nodeCell.textContent = g.node;
   statusCell.className = "status";
   const light = document.createElement("span");
@@ -706,13 +724,13 @@ function createRowEntry(g) {
   memCell.textContent = memText(g);
   fillPowerCell(powerTd, g);
 
-  tr.append(pinCell, idCell, nameCell, typeCell, nodeCell, statusCell, cpuCell, memCell, powerTd);
+  tr.append(pinCell, idCell, statusCell, nameCell, nodeCell, cpuCell, memCell, powerTd);
   const entry = {
     tr,
     pinButton,
     pinned: false,
-    nameCell,
-    typeCell,
+    nameText,
+    kindIcon,
     nodeCell,
     statusCell,
     light,
@@ -751,7 +769,7 @@ function buildDetail(entry, g) {
   const tr = document.createElement("tr");
   tr.className = "detail";
   const td = document.createElement("td");
-  td.colSpan = 9;
+  td.colSpan = 8;
   const dl = document.createElement("dl");
   const cells = {};
   for (const [key, label] of [
@@ -825,11 +843,11 @@ function patchRow(entry, g) {
     g.node !== entry.node || tags !== entry.tags;
 
   if (name !== entry.name) {
-    entry.nameCell.textContent = name;
+    entry.nameText.textContent = name;
     entry.name = name;
   }
   if (g.kind !== entry.kind) {
-    entry.typeCell.textContent = kindLabel(g.kind);
+    paintKind(entry.kindIcon, g.kind);
     entry.kind = g.kind;
   }
   if (g.node !== entry.node) {

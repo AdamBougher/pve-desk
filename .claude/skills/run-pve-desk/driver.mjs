@@ -554,6 +554,34 @@ async function smoke() {
   await type("#search", "");
   check("filter cleared", (await count("#guests tr:not([hidden])")) === 4);
 
+  console.log("type icon (F34)");
+  const kindOf = async (name) => exec(`var r=[...document.querySelectorAll("#guests tr:not(.detail)")]
+      .find(r=>r.cells[3].firstChild.textContent==="${name}");
+    var k=r.cells[3].querySelector(".kind");
+    return [k.className, k.title, k.getAttribute("aria-label"), k.getAttribute("role"),
+      k.previousSibling===r.cells[3].firstChild].join("|")`);
+  check("Status is between ID and Name", (await exec(`return [...document.querySelectorAll("thead th")]
+      .map(th=>th.textContent.trim()).slice(1,4).join(",")`)) === "ID,Status,Name");
+  check("no Type column", (await exec(`return [...document.querySelectorAll("thead th")]
+      .every(th=>th.textContent.trim()!=="Type")`)));
+  check("header and row have the same cell count", (await exec(`return document.querySelector("thead tr").cells.length
+      === document.querySelector("#guests tr").cells.length`)));
+  check("a VM gets the monitor, after its name, with its word",
+    (await kindOf("truenas")) === "kind kind-qemu|VM|VM|img|true", await kindOf("truenas"));
+  check("a container gets the cube, with its word",
+    (await kindOf("docker")) === "kind kind-lxc|LXC|LXC|img|true", await kindOf("docker"));
+  check("the two glyphs differ", (await exec(`var g=c=>getComputedStyle(document.querySelector(".kind-"+c))
+      .getPropertyValue("--glyph"); return g("qemu")!==g("lxc") && g("qemu").includes("svg")`)));
+  check("the glyph is a mask, not a fetch", (await exec(`var s=getComputedStyle(document.querySelector(".kind-qemu"));
+      return (s.webkitMaskImage||s.maskImage).startsWith('url("data:')`)));
+  check("an unknown type is not called LXC", (await exec(`var s=document.createElement("span");
+      paintKind(s,"openvz"); return [s.className,s.title,s.getAttribute("aria-label")].join("|")`)) === "kind kind-other|openvz|openvz");
+  await type("#search", "lxc");
+  check("searching \"lxc\" lists only containers",
+    (await exec(`var v=[...document.querySelectorAll("#guests tr:not([hidden])")];
+      return v.length===2 && v.every(r=>r.querySelector(".kind-lxc"))`)));
+  await type("#search", "");
+
   console.log("a guest's detail (F25)");
   // The detail is a second <tr> that a guest owns, so "#guests tr" counts
   // change — every check here says which rows it means.
@@ -689,7 +717,7 @@ async function smoke() {
   check(
     "CPU and RAM carry no sort control",
     (await exec(`return [...document.querySelectorAll("thead th")]
-      .filter(th=>["CPU","RAM","Type","Power"].includes(th.textContent.trim()))
+      .filter(th=>["CPU","RAM","Power"].includes(th.textContent.trim()))
       .every(th=>!th.hasAttribute("data-sort"))`)),
   );
   await exec(`${sortHeader("vmid")}.click(); return true`);

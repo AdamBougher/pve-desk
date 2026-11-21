@@ -720,6 +720,40 @@ at 1 GiB and 1.5 GiB, a different unit on each side, and "–" for a stopped
 guest's used RAM. Not run live, moved to #30: the TiB step, which needs a
 guest with 1 TiB of maxmem.
 
+### A guest's type is an icon after its name (F34, 2026-11-21)
+**What Proxmox draws**, read in pve-manager `www/manager6/tree/ResourceTree.js`
+(HEAD, 2026-11-21), not recalled: `qemu` is `fa fa-desktop`, `lxc` is
+`fa fa-cube`, and a template of either is `fa fa-file-o`. Home hides
+templates (Q5.3), so it needs only the first two.
+
+**Q34.1: our own inline SVG**, a monitor and a cube in the shape of the
+Proxmox icons but drawn here, not copied from Font Awesome. They are data URIs
+in `style.css`, used as a CSS mask over `currentColor`, so they follow the
+text colour in light and dark. No new file in `ui/`, no licence to carry, no
+network fetch. Rejected: Font Awesome's paths (CC BY 4.0, an attribution to
+carry for two icons) and Unicode characters (they look different with each
+font, and some systems draw them in colour).
+
+**Q34.2: the Type column is removed.** The icon in the Name cell is the only
+type marker on screen, so it has a `title` and an `aria-label` with "VM" or
+"LXC", like the F31 light. Search for "lxc" still works, because the search
+text is built from `kindLabel()`, not read from a cell.
+
+**Q34.3: a type that is neither gets no glyph.** The icon slot stays, empty,
+with the server's word in its title and accessible name. `kindLabel()` no
+longer calls every non-`qemu` type "LXC". Proxmox returns only `qemu` and
+`lxc` for `?type=vm` today; this is for the day it does not.
+
+**Status moved between ID and Name**, at the user's request when they
+reviewed F34. The row now reads light, name, type icon: the state of the
+guest is the first thing in the row, and the name and its type stay together.
+The sort and the filter do not change; only the column order changed.
+
+**Confirmed by the user on the live node, 2026-11-21**: the monitor and the
+cube after the name, and the new column order. Checked in the harness only,
+moved to #30: the tooltip and accessible name, search by "lxc", and the empty
+slot for a type that is neither.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is
