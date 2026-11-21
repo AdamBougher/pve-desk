@@ -68,6 +68,10 @@ pub trait Platform {
 
     // --- CertPinning ----------------------------------------------------
 
+    /// The Admin webview can load only a node the OS trust store vouches
+    /// for: it has no pinning of its own (F39; F40 adds it on Windows).
+    fn admin_needs_os_trust() -> bool;
+
     /// Load `target` in the Admin webview, with this OS's certificate
     /// pinning for connection `entry` on `hostname`, if it has any.
     fn attach(

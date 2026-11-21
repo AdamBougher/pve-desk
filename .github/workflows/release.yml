@@ -1,8 +1,9 @@
 name: release
 
-# Tag-driven: push v1.0.0 and this builds the AppImage and attaches it to a
-# GitHub release (F12). The release is created as a DRAFT, so the notes can
-# be written before anyone sees it.
+# Tag-driven: push v1.0.0 and this builds the AppImage (F12) and the
+# Windows nsis installer (F39) and attaches them to a GitHub release. The
+# release is created as a DRAFT, so the notes can be written before anyone
+# sees it.
 #
 # A manual run builds and checks the bundle but publishes NOTHING: the publish
 # step is guarded on a tag ref. It used to run `gh release create` with
@@ -136,7 +137,7 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" \
                  --draft \
                  --title "$GITHUB_REF_NAME" \
-                 --notes "AppImage build of $GITHUB_REF_NAME. Arch users: see packaging/arch/PKGBUILD."
+                 --notes "AppImage and Windows installer builds of $GITHUB_REF_NAME. Arch users: see packaging/arch/PKGBUILD. The Windows installer is not code-signed: if SmartScreen says \"Windows protected your PC\", click More info, then Run anyway. Check it against its .sha256 first."
 
           # --clobber only replaces an asset of the same name, so a version
           # bump would leave the previous AppImage sitting beside the new
@@ -149,6 +150,108 @@ jobs:
           done
 
           gh release upload "$GITHUB_REF_NAME" "$appimage" "$dir/$file.sha256" --clobber
+
+  # F39: the Windows installer. Unsigned (DECISIONS.md, "Windows: installer
+  # and certificates"), so SmartScreen warns on first run.
+  #
+  # Builds on every run and keeps the installer as a workflow artifact, so a
+  # manual dispatch gives a build to try on the laptop without publishing
+  # anything. Publishing is the next job, on tags only.
+  nsis:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same reasoning as the appimage job's cache, and the same key shape.
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.rustup
+            src-tauri/target
+          key: release-win-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            release-win-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}-
+            release-win-cargo-
+
+      # The same prebuilt CLI as the appimage job, for Windows.
+      - name: Install tauri-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v${TAURI_CLI_VERSION}/cargo-tauri-x86_64-pc-windows-msvc.zip"
+          curl -fsSL -o "$RUNNER_TEMP/cargo-tauri.zip" "$url"
+          unzip -o "$RUNNER_TEMP/cargo-tauri.zip" cargo-tauri.exe -d "$HOME/.cargo/bin"
+          cargo tauri --version
+
+      # --bundles picks nsis over tauri.conf.json's "targets", which stays
+      # appimage so a local `cargo tauri build` on Linux is unchanged. The
+      # bundler downloads NSIS itself.
+      - name: Build nsis installer
+        shell: bash
+        run: cargo tauri build --bundles nsis -- --locked
+
+      - name: Checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          cd src-tauri/target/release/bundle/nsis
+          bundles=(*-setup.exe)
+          if [ ${#bundles[@]} -ne 1 ]; then
+            echo "expected exactly one installer, found ${#bundles[@]}: ${bundles[*]-none}" >&2
+            exit 1
+          fi
+          # Named as the user will have it on disk, as for the AppImage.
+          sha256sum "${bundles[0]}" > "${bundles[0]}.sha256"
+          cat "${bundles[0]}.sha256"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nsis
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sha256
+          if-no-files-found: error
+
+  # Attaches the installer to the draft release. Waits for the appimage job,
+  # which checks the versions against the tag and creates the release, so the
+  # two jobs never race to create it.
+  publish-nsis:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [appimage, nsis]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nsis
+          path: nsis
+
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euxo pipefail
+          shopt -s nullglob
+          files=(nsis/*-setup.exe nsis/*-setup.exe.sha256)
+          if [ ${#files[@]} -ne 2 ]; then
+            echo "expected the installer and its checksum, found: ${files[*]-none}" >&2
+            exit 1
+          fi
+          # As for the AppImage: drop the previous version's installer, so
+          # an old .exe never sits beside a new checksum.
+          stale=$(gh release view "$GITHUB_REF_NAME" --json assets \
+                    -q '.assets[].name | select(test("-setup\\.exe(\\.sha256)?$"))' || true)
+          for asset in $stale; do
+            gh release delete-asset "$GITHUB_REF_NAME" "$asset" --yes
+          done
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
 
   # The first CI coverage packaging/arch/PKGBUILD has ever had. The appimage
   # job proves nothing about it, so a bad source URL or a mistyped dependency

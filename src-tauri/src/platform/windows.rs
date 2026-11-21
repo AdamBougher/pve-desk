@@ -63,7 +63,11 @@ impl Platform for Windows {
     fn set_admin_enabled(_app: &AppHandle, _enabled: bool) {}
 
     /// No pinning yet (F40): the node's certificate must be valid against
-    /// the OS trust store (Q17.2).
+    /// the OS trust store (Q17.2). WebView2 would show its own error page.
+    fn admin_needs_os_trust() -> bool {
+        true
+    }
+
     fn attach(
         webview: &Webview,
         _app: AppHandle,

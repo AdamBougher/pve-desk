@@ -470,6 +470,11 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
     }
 
     let (host, session) = current_host(&state).await?;
+    // F39: a webview with no pinning would show its own certificate error
+    // page. Say what fixes it instead, and open nothing.
+    if Os::admin_needs_os_trust() && !session.os_trusted {
+        return Err(Error::AdminNeedsCa);
+    }
     let ticket = session.ticket;
 
     let url: Url = host
