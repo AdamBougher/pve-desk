@@ -854,6 +854,27 @@ Order: F38 (Linux refactor), F39 (Windows build), then F40 pinning, F41 viewer
 and F42 macOS. Nothing on Windows or macOS is verified until it runs on real
 hardware.
 
+### Windows: installer and certificates (F39, 2026-11-21)
+**An unsigned nsis installer, built on windows-latest by `release.yml`.**
+This replaces the "`nsis` stops being built" line in "Release format": that
+was because Windows had no tab bar, and F39 accepts Admin as its own window
+there. Unsigned because code signing needs either an outside approval
+(SignPath Foundation, days to weeks) or a paid certificate on a hardware
+token (about $200–400 per year). The release notes describe the SmartScreen
+step ("More info", then "Run anyway"), and a `.sha256` is published beside
+the installer. Signing can be added later without changing the installer.
+
+**Admin on Windows refuses a node the OS trust store does not vouch for.**
+The API client accepts a pinned self-signed certificate on every OS, so
+login and Home work. WebView2 has no pinning until F40, so the Admin window
+would show WebView2's own certificate error page. Login already records, in
+the verifier's `Sighting`, whether the standard check passed; `Session`
+keeps that as a bool, with no second handshake and no second verifier. On
+Windows, Admin with that bool false opens no window and the status says to
+import the cluster CA (Q17.2). Rejected: open the window anyway with a hint
+(a broken window and two messages), and doing F40's pinning now (days, and
+every step needs the laptop).
+
 ### Release format (2026-10-21)
 **AppImage, plus an Arch package.** AppImage for everyone else: one file, no
 distro assumptions, and Tauri bundles it already. Arch because it is what

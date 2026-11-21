@@ -321,8 +321,23 @@ listen("logged-out", () => {
 // Q33.1: one Log out only. Where the native top bar holds it (Linux), the
 // page's copy is hidden; elsewhere it is the only one.
 invoke("has_top_bar")
-  .then((bar) => { $("logout").hidden = bar; })
+  .then((bar) => {
+    $("logout").hidden = bar;
+    // F39: the same for Admin, but shown only once we know there is no
+    // strip, so Linux never shows two Admin buttons, even briefly.
+    $("admin").hidden = bar;
+  })
   .catch(() => {});
+
+// F39: Admin is its own window here. A node the system does not trust gets
+// the backend's "import the cluster CA" message instead of a window.
+$("admin").addEventListener("click", async () => {
+  try {
+    await invoke("open_admin_panel");
+  } catch (err) {
+    status(`${err}`);
+  }
+});
 
 $("logout").addEventListener("click", async () => {
   try {

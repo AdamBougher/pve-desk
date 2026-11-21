@@ -105,6 +105,11 @@ impl Platform for Linux {
         });
     }
 
+    /// WebKitGTK pins the certificate itself (`setup_admin_webview`).
+    fn admin_needs_os_trust() -> bool {
+        false
+    }
+
     fn attach(
         webview: &Webview,
         app: AppHandle,

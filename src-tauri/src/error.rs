@@ -24,6 +24,15 @@ pub enum Error {
     /// session. Shown to the user as-is, so it reads as an instruction.
     #[error("this connection is signed in — log out before removing it")]
     Connected,
+    /// F39: Admin on an OS whose webview cannot pin (Windows, macOS), for a
+    /// node whose certificate the OS trust store does not vouch for. Shown
+    /// to the user as-is, so it reads as an instruction.
+    #[error(
+        "Admin cannot open: this system does not trust the node's certificate. \
+         Import the cluster CA (/etc/pve/pve-root-ca.pem on the node) into the \
+         system trust store, then log out and connect again."
+    )]
+    AdminNeedsCa,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("window error: {0}")]

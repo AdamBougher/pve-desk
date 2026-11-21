@@ -453,6 +453,22 @@ async function smoke() {
   await waitUntil(() => visible("#main"), "guest view");
   check("guest view shown", await visible("#main"));
 
+  // F39: no top bar (the stub's has_top_bar is null), so the page has its
+  // own Admin. A node the system does not trust gets the backend's message.
+  console.log("F39 page Admin");
+  check("page Admin shown with no top bar", await visible("#admin"));
+  await exec(`window.__FAIL.open_admin_panel = arguments[0]; return true`, [
+    "Admin cannot open: import the cluster CA",
+  ]);
+  await click("#admin");
+  await waitUntil(async () => (await text("#status")).includes("cluster CA"), "CA message");
+  check(
+    "Admin click calls open_admin_panel",
+    (await calls()).some((c) => c.cmd === "open_admin_panel"),
+  );
+  check("refused Admin shows the CA message", (await text("#status")).includes("import the cluster CA"));
+  await exec(`delete window.__FAIL.open_admin_panel; return true`);
+
   console.log("guest list");
   await waitUntil(async () => (await count("#guests tr")) > 0, "rows");
   const rows = await count("#guests tr");

@@ -23,6 +23,10 @@ pub struct Session {
     pub ticket: String,
     pub csrf_token: String,
     pub obtained_at: Instant,
+    /// The OS trust store vouched for the node's certificate at login, with
+    /// no help from the pin (F39). A webview with no pinning of its own
+    /// (WebView2, until F40) can load the node only when this is true.
+    pub os_trusted: bool,
     http: reqwest::Client,
 }
 
@@ -120,6 +124,8 @@ fn fingerprint(cert: &CertificateDer<'_>) -> String {
 struct Sighting {
     fingerprint: Option<String>,
     accepted: bool,
+    /// The standard check against the OS trust store passed by itself (F39).
+    standard: bool,
 }
 
 /// Accepts a server certificate if it verifies normally against the OS trust
@@ -164,6 +170,7 @@ impl ServerCertVerifier for PinnedVerifier {
         if let Ok(mut record) = self.seen.lock() {
             record.fingerprint = Some(seen);
             record.accepted = accepted;
+            record.standard = standard.is_ok();
         }
 
         match standard {
@@ -296,11 +303,15 @@ pub async fn login(host: &HostConfig, password: &str, trust: Option<&str>) -> Re
     }
 
     let body: ApiResponse<TicketData> = resp.json().await?;
+    // The login is the first request on this client, so the sighting is
+    // its handshake.
+    let os_trusted = seen.lock().map(|s| s.standard).unwrap_or(false);
     Ok(Session {
         base_url: host.base_url(),
         ticket: body.data.ticket,
         csrf_token: body.data.csrf_token,
         obtained_at: Instant::now(),
+        os_trusted,
         http,
     })
 }
@@ -544,5 +555,74 @@ mod tests {
         for kind in ["", "node", "qemu/", "QEMU", "../qemu"] {
             assert!(check_power(kind, "start").is_err(), "accepted {kind:?}");
         }
+    }
+
+    /// A stand-in for the OS trust-store check: always passes or always
+    /// fails, so the pin logic can be tested without real certificates.
+    #[derive(Debug)]
+    struct Fixed(bool);
+
+    impl rustls::client::danger::ServerCertVerifier for Fixed {
+        fn verify_server_cert(
+            &self,
+            _: &super::CertificateDer<'_>,
+            _: &[super::CertificateDer<'_>],
+            _: &super::ServerName<'_>,
+            _: &[u8],
+            _: super::UnixTime,
+        ) -> std::result::Result<super::ServerCertVerified, rustls::Error> {
+            if self.0 {
+                Ok(super::ServerCertVerified::assertion())
+            } else {
+                Err(rustls::Error::General("untrusted".into()))
+            }
+        }
+        fn verify_tls12_signature(
+            &self,
+            _: &[u8],
+            _: &super::CertificateDer<'_>,
+            _: &super::DigitallySignedStruct,
+        ) -> std::result::Result<super::HandshakeSignatureValid, rustls::Error> {
+            unreachable!()
+        }
+        fn verify_tls13_signature(
+            &self,
+            _: &[u8],
+            _: &super::CertificateDer<'_>,
+            _: &super::DigitallySignedStruct,
+        ) -> std::result::Result<super::HandshakeSignatureValid, rustls::Error> {
+            unreachable!()
+        }
+        fn supported_verify_schemes(&self) -> Vec<super::SignatureScheme> {
+            Vec::new()
+        }
+    }
+
+    /// Run the verifier once on a fake certificate; return what it saw.
+    fn sight(os_ok: bool, pin_matches: bool) -> (bool, bool, bool) {
+        use rustls::client::danger::ServerCertVerifier;
+        let cert = super::CertificateDer::from(vec![1u8, 2, 3]);
+        let pinned = pin_matches.then(|| super::fingerprint(&cert));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(super::Sighting::default()));
+        let v = super::PinnedVerifier {
+            inner: std::sync::Arc::new(Fixed(os_ok)),
+            pinned,
+            seen: std::sync::Arc::clone(&seen),
+        };
+        let name = super::ServerName::try_from("pve.example").unwrap();
+        let result = v.verify_server_cert(&cert, &[], &name, &[], super::UnixTime::now());
+        let s = seen.lock().unwrap();
+        (result.is_ok(), s.accepted, s.standard)
+    }
+
+    /// F39: `os_trusted` must be true only when the OS vouched by itself. A
+    /// pin match lets the API in, but not a webview that cannot pin.
+    #[test]
+    fn standard_is_recorded_apart_from_the_pin() {
+        // (handshake ok, accepted, standard)
+        assert_eq!(sight(true, false), (true, true, true));
+        assert_eq!(sight(true, true), (true, true, true));
+        assert_eq!(sight(false, true), (true, true, false));
+        assert_eq!(sight(false, false), (false, false, false));
     }
 }

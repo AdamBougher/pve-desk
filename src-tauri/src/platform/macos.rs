@@ -48,6 +48,10 @@ impl Platform for MacOs {
         Windows::set_admin_enabled(app, enabled);
     }
 
+    fn admin_needs_os_trust() -> bool {
+        Windows::admin_needs_os_trust()
+    }
+
     fn attach(
         webview: &Webview,
         app: AppHandle,
