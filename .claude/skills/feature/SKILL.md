@@ -118,6 +118,10 @@ fixing unrelated code.
   scenario, and
   update `README.md` if the app now does something new. Open issues are
   outstanding work and nothing else — never a finished feature left open.
+- Before you open the PR, bump the patch number in the same branch:
+  `tauri.conf.json`, `Cargo.toml` (then `cargo build` for `Cargo.lock`) and
+  the PKGBUILD's `pkgver`, one above `main`. See "Versions" in `CLAUDE.md`.
+  CI's `version` job fails the PR without it.
 - Compare the result against the Goal from step 4 and say: met, partly met, or
   not met.
 - State plainly what you could **not** verify. Login, the guest list, power

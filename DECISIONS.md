@@ -932,6 +932,26 @@ Gap this shows: `ci.yml` never runs the bundler, so a missing bundle-time
 library appears only on a tag. `workflow_dispatch` on `release.yml` builds
 the bundle without publishing. Run it on `main` before you tag.
 
+### Every PR bumps the patch number (2026-11-21)
+**Decided: each PR bumps `PATCH` by 1, and CI enforces it.** The rule is in
+`CLAUDE.md` ("Versions") and in the `/feature` skill. The `version` job in
+`ci.yml` runs on pull requests only. It fails when `tauri.conf.json`,
+`Cargo.toml`, `Cargo.lock` and the PKGBUILD's `pkgver` disagree, or when
+the PR's version is not higher than its base branch's (`sort -V`, so
+`1.2.10` is higher than `1.2.9`). The same check catches two PRs that both
+bumped to the same number: after one merges, the other is equal to `main`
+and fails until it bumps again.
+
+Rejected: the rule with no check (nothing catches a PR that you, Dependabot
+or a forgotten step opens), and a bot that commits the bump to `main` after
+each merge (a bot with write access to `main`, and an extra commit after
+each merge that makes it harder to tag the right commit).
+
+Known costs: a docs-only PR needs a bump too. `main` carries a version that
+has no tag until you release, and in that time a PKGBUILD build from `main`
+gets a 404. Builds from a tag are not affected. Under semver a feature is a
+minor bump. The user chose patch for every PR.
+
 ### The v1.0 checksum names a build path (2026-10-22)
 The `.sha256` published beside the v1.0 AppImage reads
 `51d59bef…  src-tauri/target/release/bundle/appimage/pve-desk_1.0.0_amd64.AppImage`.

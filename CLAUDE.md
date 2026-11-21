@@ -111,6 +111,25 @@ Login, the guest list, power actions, SPICE, the tray and Admin need a live
 Proxmox node to verify. Without one, report the feature as untested and name
 the scenarios you could not run.
 
+## Versions
+
+Every pull request bumps the patch number by 1 (`1.2.1` → `1.2.2`), in the
+same PR, in all four places:
+
+- `src-tauri/tauri.conf.json`: `"version"`
+- `src-tauri/Cargo.toml`: `version`, then `cargo build` to update
+  `src-tauri/Cargo.lock`
+- `packaging/arch/PKGBUILD`: `pkgver`, with `pkgrel=1`
+
+Bump from the version on `main` when you open the PR. If another PR merges
+first with the same number, bump again. The `version` job in `ci.yml` fails
+a PR whose four versions disagree or are not higher than its base branch.
+
+A bump is not a release. A release is a `v<MAJOR>.<MINOR>.<PATCH>` tag on
+`main` (three numbers), and `release.yml` builds it. Until you tag,
+building the PKGBUILD from `main` gets a 404, because its source is tag
+`v$pkgver`.
+
 ## Communication
 
 - Reply in ASD-STE100 Simplified Technical English, with `GLOSSARY.md`'s

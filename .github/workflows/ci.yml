@@ -55,3 +55,48 @@ jobs:
       - name: Test
         working-directory: src-tauri
         run: cargo test
+
+  # Every PR bumps the patch version (CLAUDE.md, "Versions"). Fails when the
+  # four places that carry the version disagree, or when the PR's version is
+  # not higher than its base branch's. The second check also catches two PRs
+  # that both bumped to the same number: after the first merges, the second
+  # is no longer higher than main and must bump again.
+  version:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Fetch the base branch
+        run: git fetch --depth=1 origin "${{ github.base_ref }}"
+
+      - name: Version agrees everywhere and is higher than the base
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # tauri.conf.json is the version the AppImage is named after, and
+          # what release.yml compares to the tag.
+          ver() { jq -r .version; }
+          new=$(ver < src-tauri/tauri.conf.json)
+          old=$(git show "$BASE:src-tauri/tauri.conf.json" | ver)
+          cargo=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)
+          lock=$(awk '/^name = "pve-desk"$/ { getline; gsub(/version = |"/, ""); print; exit }' src-tauri/Cargo.lock)
+          pkg=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+          echo "base=$old  tauri.conf.json=$new  Cargo.toml=$cargo  Cargo.lock=$lock  PKGBUILD=$pkg"
+
+          fail=0
+          for pair in "Cargo.toml:$cargo" "Cargo.lock:$lock" "PKGBUILD:$pkg"; do
+            if [ "${pair#*:}" != "$new" ]; then
+              echo "::error::${pair%%:*} says ${pair#*:}, tauri.conf.json says $new" >&2
+              fail=1
+            fi
+          done
+          # sort -V orders 1.2.10 after 1.2.9. Higher means: not equal, and
+          # sorts last.
+          top=$(printf '%s\n%s\n' "$old" "$new" | sort -V | tail -1)
+          if [ "$new" = "$old" ] || [ "$top" != "$new" ]; then
+            echo "::error::version $new is not higher than $old on ${{ github.base_ref }}; bump the patch number (CLAUDE.md, Versions)" >&2
+            fail=1
+          fi
+          exit "$fail"
