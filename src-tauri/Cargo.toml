@@ -1,6 +1,6 @@
 [package]
 name = "pve-desk"
-version = "1.2.2"
+version = "1.2.3"
 edition = "2021"
 description = "Desktop client for Proxmox VE"
 license = "MIT"

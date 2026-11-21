@@ -9,15 +9,18 @@
 //! - `tray`     — the system tray icon: Show and Quit (F10)
 //! - `commands` — Tauri commands the frontend calls
 //! - `error`    — shared error type
+//! - `platform` — everything that differs per OS, one file per OS (F38)
 
 mod api;
 mod commands;
 mod config;
 mod error;
+mod platform;
 mod secrets;
 mod spice;
 mod tray;
 
+use platform::{Os, Platform};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -54,43 +57,9 @@ impl AppState {
     }
 }
 
-/// Pick a WebKitGTK rendering path that works on this machine.
-///
-/// WebKit's dmabuf renderer allocates GBM buffers, which fails on the NVIDIA
-/// proprietary driver: on a native Wayland session GDK then dies with
-/// "Error 71 (Protocol error)" before any window appears.
-///
-/// Default is `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`: the dmabuf renderer and
-/// accelerated compositing stay on, but buffers go through shared memory
-/// instead of GBM. Verified on this machine to start cleanly on Wayland with
-/// no errors and render correctly.
-///
-/// `PVE_DESK_RENDER` overrides it while the console-smoothness problem is
-/// being chased:
-///   - `legacy` — disable the dmabuf renderer entirely (the previous default)
-///   - `raw`    — set nothing; WebKit's stock behaviour, crashes on NVIDIA
-#[cfg(target_os = "linux")]
-fn apply_linux_webkit_workarounds() {
-    match std::env::var("PVE_DESK_RENDER").as_deref() {
-        Ok("raw") => {}
-        Ok("legacy") => {
-            if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-                std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-            }
-        }
-        _ => {
-            if std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_none() {
-                std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
-            }
-        }
-    }
-}
-
 pub fn run() {
-    // Must happen before the webview starts. WebKitGTK only; WebView2 and
-    // WKWebView have no equivalent problem.
-    #[cfg(target_os = "linux")]
-    apply_linux_webkit_workarounds();
+    // Must happen before the webview starts.
+    Os::before_start();
 
     tauri::Builder::default()
         .manage(AppState::default())
@@ -142,7 +111,7 @@ pub fn run() {
                 // so the answer needs no flag in `AppState`.
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     let app = tauri::Manager::app_handle(window).clone();
-                    if tray::exists(&app) {
+                    if Os::tray_exists(&app) {
                         api.prevent_close();
                         let _ = window.hide();
                     }
@@ -151,12 +120,8 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            // F14: on Linux the tab bar is a native widget, because GTK can
-            // neither position a child webview nor cap one's height. See
-            // DECISIONS.md. Nothing to re-fit on resize: the GtkBox lays its
-            // children out itself.
-            #[cfg(target_os = "linux")]
-            commands::install_native_tabs(app.handle());
+            // F14: the Linux tab strip; nothing elsewhere.
+            Os::install(app.handle());
             // F10: the tray, Show and Quit.
             tray::install(app.handle());
             Ok(())

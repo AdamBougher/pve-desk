@@ -53,6 +53,9 @@ Change these only after you ask me:
 `api.rs` the Proxmox client and certificate verifier; `config.rs`
 `~/.config/pve-desk/config.toml` (no secrets); `secrets.rs` the keyring;
 `spice.rs` the `.vv` file and `remote-viewer`; `tray.rs` the tray;
+`platform/` everything that differs per OS: a trait in `mod.rs`, one file
+per OS (`linux.rs`, `windows.rs`, `macos.rs`), so other modules carry no
+`cfg(target_os)`;
 `error.rs` the error type, sent to the UI as a string.
 
 ## Security rules

@@ -7,6 +7,7 @@
 //! `DECISIONS.md`, "SPICE `.vv` handling", for what was rejected.
 
 use crate::error::Result;
+use crate::platform::{Os, Platform};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -79,39 +80,6 @@ fn spice_dir() -> PathBuf {
     std::env::temp_dir().join("pve-desk")
 }
 
-/// Create the file private from the outset.
-///
-/// `mode` applies only when the file is created, so `create_new` is used
-/// rather than `create`: it fails instead of writing a ticket into a path
-/// something else already owns, including a symlink planted in a shared
-/// temp directory.
-fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
-    opts.open(path)
-}
-
-/// Keep the directory itself private too, so the filenames aren't listable
-/// by other users even while a ticket is live.
-#[cfg(unix)]
-fn restrict_dir(dir: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-}
-
-/// Windows has no mode bits. `%LOCALAPPDATA%\Temp` is already per-user and
-/// ACL'd to that user, which is what this relies on — unverified, since
-/// Windows has never been run (F17).
-#[cfg(not(unix))]
-fn restrict_dir(_dir: &Path) -> std::io::Result<()> {
-    Ok(())
-}
-
 /// A file this old can only be a leftover: nothing waits anywhere near this
 /// long for the viewer to read one.
 const STALE: Duration = Duration::from_secs(60);
@@ -153,11 +121,11 @@ pub async fn launch(
 ) -> Result<()> {
     let dir = spice_dir();
     std::fs::create_dir_all(&dir)?;
-    restrict_dir(&dir)?;
+    Os::restrict_dir(&dir)?;
     sweep(&dir);
 
     let file = dir.join(vv_name(node, vmid, now_nanos()));
-    let mut f = create_private(&file)?;
+    let mut f = Os::create_private(&file)?;
     f.write_all(to_vv(data).as_bytes())?;
     drop(f);
 
@@ -252,30 +220,5 @@ mod tests {
         assert_ne!(a, c, "two launches must not share a file");
         assert!(a.ends_with(".vv"));
         assert!(!vv_name("../etc", 1, 1).contains('/'));
-    }
-
-    /// The point of the whole change: the file holding the ticket is never
-    /// readable by anyone else, including for the instant between creating it
-    /// and writing to it.
-    #[test]
-    #[cfg(unix)]
-    fn vv_file_is_created_private() {
-        use super::create_private;
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = std::env::temp_dir().join(format!("pve-desk-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("mode-check.vv");
-        let _ = std::fs::remove_file(&path);
-
-        let f = create_private(&path).unwrap();
-        let mode = f.metadata().unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "created as {mode:o}, want 600");
-
-        // create_new: a path that already exists is refused rather than
-        // written through, which is what stops a planted symlink.
-        assert!(create_private(&path).is_err());
-
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

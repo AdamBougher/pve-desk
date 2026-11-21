@@ -837,6 +837,19 @@ behaviour stays the same.
 Rejected: more `cfg` branches inside `commands.rs` (faster at first, but the
 branches multiply), and Linux only (drops F17).
 
+**Windows and macOS share one file until they differ (F38, 2026-11-21).**
+Both use the same Admin shell today: Admin in its own window, no tabs, no
+status label. That code is in `windows.rs`, which compiles on Windows and
+macOS; `macos.rs` calls it. Rejected: a copy in each file (a fix must be made
+twice, and macOS has no CI to catch the drift), and default trait methods in
+`mod.rs` (then `mod.rs` holds behaviour, not only the interface). F42 replaces
+the calls in `macos.rs` when macOS needs its own behaviour.
+
+**F38 is done (2026-11-21).** The user confirmed by hand that Linux behaves
+as before, and windows-latest passed CI (PR #45). One change in order: on a
+new Admin panel, Linux sets the title and emits `tab` after the load starts,
+not before the cookie is set. macOS was never compiled (issue #30).
+
 Order: F38 (Linux refactor), F39 (Windows build), then F40 pinning, F41 viewer
 and F42 macOS. Nothing on Windows or macOS is verified until it runs on real
 hardware.
