@@ -60,11 +60,16 @@ jobs:
             exit 1
           fi
 
+      # libayatana-appindicator3-dev: the tray (F11) loads appindicator at
+      # run time, so the AppImage bundler must find it to pack it. Without
+      # it `cargo tauri build` panics with "Can't detect any appindicator
+      # library" after the compile succeeds — that is how v1.2.0 failed.
       - name: Install Linux system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
+            libayatana-appindicator3-dev \
             build-essential pkg-config file
 
       # The key carries the commit, so every run saves a fresh cache: with a

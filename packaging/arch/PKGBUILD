@@ -1,6 +1,6 @@
 # Maintainer: Adam Bougher <adamsauce99@gmail.com>
 pkgname=pve-desk
-pkgver=1.2.0
+pkgver=1.2.1
 pkgrel=1
 pkgdesc="Desktop client for Proxmox VE"
 arch=('x86_64')
@@ -13,8 +13,10 @@ options=(!lto)
 url="https://github.com/AdamBougher/pve-desk"
 license=('MIT')
 # webkit2gtk-4.1 is the webview; gtk3 is used directly for the tab strip
-# (F14). librsvg renders the SVG icon.
-depends=('webkit2gtk-4.1' 'libsoup3' 'gtk3' 'librsvg' 'gcc-libs' 'glibc')
+# (F14). librsvg renders the SVG icon. libayatana-appindicator is the tray
+# icon, loaded at run time (F11).
+depends=('webkit2gtk-4.1' 'libsoup3' 'gtk3' 'librsvg' 'libayatana-appindicator'
+         'gcc-libs' 'glibc')
 makedepends=('cargo' 'pkgconf')
 optdepends=(
   'gnome-keyring: Secret Service provider, needed to store saved passwords'

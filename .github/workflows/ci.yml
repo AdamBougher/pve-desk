@@ -18,7 +18,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Tauri's Linux backend needs the WebKitGTK stack. Windows uses WebView2,
       # which ships with the runner.
@@ -33,7 +33,7 @@ jobs:
       # The toolchain comes from rust-toolchain.toml; cargo installs it on
       # first use, so there is no version to repeat here.
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index

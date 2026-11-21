@@ -910,6 +910,28 @@ as the version guard checks. **`v1.1` is left published, same reasoning as
 built against this bump, and the version guard now exists to catch this
 exact drift on every tag from here on, not just the next one.
 
+### v1.2.0 has no AppImage; v1.2.1 supersedes it (2026-11-21)
+The `v1.2.0` appimage job compiled, then `cargo tauri build` panicked with
+"Can't detect any appindicator library". The tray (F11) is new since `v1.1`
+and loads `libayatana-appindicator` at run time, so the bundler must find
+it to pack it into the AppImage. The runner did not have it. The `pkgbuild`
+job passed, so `v1.2.0` was published by hand for Arch with no AppImage.
+
+Fixed: `release.yml` installs `libayatana-appindicator3-dev`, and the
+PKGBUILD lists `libayatana-appindicator` in `depends`. It was missing there
+too, hidden because every machine that tested it already had the library.
+
+**Decided: release `v1.2.1`, and leave `v1.2.0` published.** A tag runs the
+workflow from its own commit, so only a new tag can carry the fix. Same rule
+as `v1.0` and `v1.1`: supersede a public release, do not rewrite it.
+Rejected: moving the `v1.2.0` tag (rewrites a published tag under Arch
+users who already fetched its source), and waiting for the next feature
+release (leaves the current version without an AppImage for no reason).
+
+Gap this shows: `ci.yml` never runs the bundler, so a missing bundle-time
+library appears only on a tag. `workflow_dispatch` on `release.yml` builds
+the bundle without publishing. Run it on `main` before you tag.
+
 ### The v1.0 checksum names a build path (2026-10-22)
 The `.sha256` published beside the v1.0 AppImage reads
 `51d59bef…  src-tauri/target/release/bundle/appimage/pve-desk_1.0.0_amd64.AppImage`.
