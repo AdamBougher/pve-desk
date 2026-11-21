@@ -73,7 +73,10 @@ Windows and wanted the same experience on Linux, so I built one.
 - **Pinned guests.** A star on each row pins a guest. Pinned guests come
   first in Home, sorted among themselves by the column you chose. Pins are
   saved per connection, so the same VMID on another cluster is not pinned.
-- **Log out.** Drops the session, keeps the saved credentials.
+- **Log out.** Drops the session, keeps the saved credentials. On Linux it
+  is at the right end of the top bar, beside Admin and Home, so it works
+  from Admin too. It is greyed when no session is live. On Windows and macOS
+  it stays in Home's header.
 - **A tray icon, and a window that closes to it.** Closing the window no
   longer quits the app — it hides to the system tray, and **Quit** in the
   tray menu is how you actually exit. The menu holds **Show pve-desk** and

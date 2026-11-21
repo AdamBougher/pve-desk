@@ -306,14 +306,27 @@ function syncPolling() {
   }
 }
 
-$("logout").addEventListener("click", async () => {
+// F33 Q33.2: the backend ends the session (from the top bar's Log out on
+// Linux, or the `logout` command below) and has already shown Home, so this
+// page only clears its own view.
+listen("logged-out", () => {
   clearInterval(refreshTimer);
   refreshTimer = null;
+  onHomeTab = true;
+  clearGuests();
+  showLauncher();
+  status("Logged out. Your connection is still saved.");
+});
+
+// Q33.1: one Log out only. Where the native top bar holds it (Linux), the
+// page's copy is hidden; elsewhere it is the only one.
+invoke("has_top_bar")
+  .then((bar) => { $("logout").hidden = bar; })
+  .catch(() => {});
+
+$("logout").addEventListener("click", async () => {
   try {
     await invoke("logout");
-    clearGuests();
-    status("Logged out. Your connection is still saved.");
-    showLauncher();
   } catch (err) {
     status(`Log out failed: ${err}`);
   }
