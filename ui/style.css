@@ -27,8 +27,27 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #8884; }
 /* F6: power buttons, kept compact so a row stays one line high. */
 td.actions { display: flex; gap: 4px; }
 td.actions button { padding: 1px 8px; font-size: 0.9em; }
-.st-running { color: #2a9d4b; }
-.st-stopped { color: #888; }
+/* F31: the status light. Each status has its own shape as well as its own
+   colour (Q31.2), so the status does not depend on telling red from green. */
+.light {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  vertical-align: middle;
+}
+.light-running { background: #2a9d4b; border-radius: 50%; }
+.light-stopped { background: #d64545; border-radius: 1px; }
+.light-starting {
+  background: #e5a000;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  width: 0.8em;
+  height: 0.75em;
+}
+.light-other {
+  box-sizing: border-box;
+  border: 2px solid #888;
+  border-radius: 50%;
+}
 
 /* F26: a sortable header is a button that looks like the heading it
    replaces, so the row of headers still reads as headers. */

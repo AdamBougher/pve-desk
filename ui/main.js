@@ -535,6 +535,43 @@ const POWER_BUTTONS = {
 // disabled across a refresh without this living in the guest payload itself.
 const busy = new Set();
 
+// ---- F31: the status light ----
+//
+// Q31.1: the node has no "starting" status, so amber is this app's own
+// knowledge: a Start it sent, keyed by vmid, with the time after which it is
+// no longer believed. Checked when a row is drawn, so there is no timer.
+const STARTING_FOR_MS = 60_000;
+const starting = new Map();
+
+// What the light shows for a guest. Q31.2/Q31.3: a shape and colour per
+// status, and the word only in the title and accessible name. Any status
+// that is not running or stopped is a grey ring carrying the server's word.
+function lightFor(g) {
+  const until = starting.get(g.vmid);
+  if (until !== undefined) {
+    if (g.status === "stopped" && Date.now() < until) {
+      return { kind: "starting", label: "Starting" };
+    }
+    // Reported running, or no longer believed: amber is over either way.
+    starting.delete(g.vmid);
+  }
+  if (g.status === "running") return { kind: "running", label: "Running" };
+  if (g.status === "stopped") return { kind: "stopped", label: "Stopped" };
+  return { kind: "other", label: g.status || "Unknown" };
+}
+
+// Writes the light only when its kind or word changed (F22: patch, do not
+// rebuild). The word goes in through attributes, never as markup.
+function paintLight(entry, g) {
+  const { kind, label } = lightFor(g);
+  const key = `${kind}|${label}`;
+  if (key === entry.lightKey) return;
+  entry.light.className = `light light-${kind}`;
+  entry.light.title = label;
+  entry.light.setAttribute("aria-label", label);
+  entry.lightKey = key;
+}
+
 const guestKey = (g) => `${g.node}/${g.vmid}`;
 const guestLabel = (g) => (g.name ? `${g.name} (${g.vmid})` : `${g.vmid}`);
 
@@ -557,6 +594,8 @@ async function power(g, action, label) {
   }
 
   busy.add(guestKey(g));
+  // F31 Q31.1: amber from now until a read reports it running.
+  if (action === "start") starting.set(g.vmid, Date.now() + STARTING_FOR_MS);
   syncRows();
   status(`${label} ${guestLabel(g)}…`);
   try {
@@ -568,6 +607,8 @@ async function power(g, action, label) {
     });
     status(`${label} requested for ${guestLabel(g)}.`);
   } catch (err) {
+    // The node refused it, so nothing is coming up.
+    starting.delete(g.vmid);
     status(`${label} failed for ${guestLabel(g)}: ${err}`);
   } finally {
     busy.delete(guestKey(g));
@@ -652,9 +693,10 @@ function createRowEntry(g) {
   nameCell.textContent = g.name ?? "";
   typeCell.textContent = kindLabel(g.kind);
   nodeCell.textContent = g.node;
-  const known = g.status === "running" || g.status === "stopped";
-  statusCell.textContent = g.status;
-  if (known) statusCell.className = `st-${g.status}`;
+  statusCell.className = "status";
+  const light = document.createElement("span");
+  light.setAttribute("role", "img");
+  statusCell.append(light);
   cpuCell.textContent = cpuText(g);
   memCell.textContent = memText(g);
   fillPowerCell(powerTd, g);
@@ -668,6 +710,8 @@ function createRowEntry(g) {
     typeCell,
     nodeCell,
     statusCell,
+    light,
+    lightKey: "",
     cpuCell,
     memCell,
     powerTd,
@@ -693,6 +737,7 @@ function createRowEntry(g) {
     detailText: null,
   };
   markPin(entry, pins.has(g.vmid));
+  paintLight(entry, g);
   return entry;
 }
 
@@ -789,11 +834,9 @@ function patchRow(entry, g) {
   entry.tags = tags;
   if (identityChanged) entry.haystack = haystack(g);
 
-  if (g.status !== entry.status) {
-    entry.statusCell.textContent = g.status;
-    const known = g.status === "running" || g.status === "stopped";
-    entry.statusCell.className = known ? `st-${g.status}` : "";
-  }
+  // F31: every patch, not only on a status change — amber can start or end
+  // with the status unchanged. paintLight() writes nothing when it is the same.
+  paintLight(entry, g);
 
   const cpu = cpuText(g);
   if (cpu !== entry.cpuText) {

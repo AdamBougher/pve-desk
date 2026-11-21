@@ -661,6 +661,39 @@ tray lists no guests, so pins are a Home feature only.
 Confirmed by the user on the live node, 2026-11-21: pinned guests lead Home
 and pins survive a restart.
 
+### Status is a light with a shape (F31, 2026-11-21)
+**The node has no "starting" status.** Checked in the API schema
+(pve-docs `apidoc.js`, downloaded 2026-11-21), not recalled: `status/current`
+for QEMU and LXC has the enum `[stopped, running]`; `/cluster/resources`, which
+Home reads, has `status` as a free string ("resource type dependent"), plus
+`lock` and `hastate`.
+
+**Q31.1: amber is local.** It shows while this app has a Start in flight for
+the guest, until a read reports it running, and for 60 s at most. The limit
+is checked when a row is drawn, so it needs no timer: the reads at +0 s and
++3 s after a power action and the 30 s poll are the moments it can change. A
+start from Admin or another client shows no amber. Amber is for Start only,
+because that is the case the issue asks for.
+
+Rejected: **no amber**, which drops the "coming up" scenario. Rejected:
+**amber when the guest has a `lock`**: it is server truth and seen from any
+client, but it means "busy with a task" (backup, migrate, snapshot), not
+"starting", and a plain start sets no lock.
+
+**Q31.2: the light replaces the word, and each status has its own shape.**
+Green circle running, red square stopped, amber triangle starting. The shape
+was the user's idea: red and green are the one pair a colour-blind reader
+cannot separate, and a shape carries the status without colour. Each light
+has a `title` and an `aria-label` with the status word.
+
+**Q31.3: any other status is a hollow grey ring**, with the server's word in
+its title and accessible name and no visible word. The issue's scenario said
+"legible as text"; it now says the word is in the title and accessible name.
+
+**Confirmed by the user on the live node, 2026-11-21**: the green circle and
+red square, and a Start going amber and then green. Not run live, moved to
+#30: the grey ring for a guest on a node that is down.
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is
