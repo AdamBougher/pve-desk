@@ -68,6 +68,9 @@ const FIXTURES = {
   // call, which is what the test asserts on.
   get_sort: { column: "vmid", desc: false },
   set_sort: null,
+  // F11: the live connection's pins. Starts empty; set_pinned is recorded.
+  get_pins: [],
+  set_pinned: null,
   list_guests: [
     {
       vmid: 100, name: "truenas", kind: "qemu", node: "pve", status: "running",
@@ -649,7 +652,7 @@ async function smoke() {
   console.log("sorting and filters (F26)");
   const ids = async () =>
     await exec(`return [...document.querySelectorAll("#guests tr:not(.detail)")]
-      .map(r=>r.cells[0].textContent.trim()).join(",")`);
+      .map(r=>r.cells[1].textContent.trim()).join(",")`);
   check("sorted by vmid to start with", (await ids()) === "100,101,102,103", await ids());
   const sortHeader = (col) => `document.querySelector('th[data-sort="${col}"] button')`;
   await exec(`${sortHeader("name")}.click(); return true`);
@@ -714,6 +717,55 @@ async function smoke() {
   await exec(`var s=document.querySelector("#status-filter");
     s.value=""; s.dispatchEvent(new Event("change")); return true`);
   check("clearing both shows everything", (await count("#guests tr:not(.detail):not([hidden])")) === 4);
+
+  console.log("pins (F11)");
+  const order = (await calls()).map((c) => c.cmd);
+  check(
+    "pins are read before the first list",
+    order.indexOf("get_pins") !== -1 && order.indexOf("get_pins") < order.indexOf("list_guests"),
+    order.join(","),
+  );
+  const pinOf = (vmid) => `[...document.querySelectorAll("#guests tr:not(.detail)")]
+      .find(r=>r.cells[1].textContent.trim()==="${vmid}").querySelector("button.pin")`;
+  check(
+    "every row has an unpressed pin",
+    (await count("#guests button.pin[aria-pressed=false]")) === 4,
+  );
+  await exec(`${pinOf(101)}.click(); return true`);
+  check("a pinned guest leads the list", (await ids()) === "101,100,102,103", await ids());
+  check(
+    "the pin was saved for that vmid",
+    (await calls()).some((c) => c.cmd === "set_pinned" && c.args.vmid === 101 && c.args.pinned === true),
+    JSON.stringify((await calls()).filter((c) => c.cmd === "set_pinned")),
+  );
+  check(
+    "its star shows pressed",
+    (await exec(`return ${pinOf(101)}.getAttribute("aria-pressed")`)) === "true",
+  );
+  check("exactly one row is marked pinned", (await count("#guests tr.pinned")) === 1);
+  await exec(`${sortHeader("name")}.click(); return true`);
+  check("the sort orders the rest by name", (await ids()) === "101,103,102,100", await ids());
+  await exec(`${sortHeader("name")}.click(); return true`);
+  check("pinned stays first when descending", (await ids()) === "101,100,102,103", await ids());
+  await exec(`${sortHeader("vmid")}.click(); return true`);
+  await type("#search", "truenas");
+  check(
+    "a pinned guest is still subject to the search box",
+    (await count("#guests tr:not(.detail):not([hidden])")) === 1 &&
+      (await exec(`return ${pinOf(101)}.closest("tr").hidden`)) === true,
+  );
+  await type("#search", "");
+  await click("#refresh");
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh");
+  check("the pin holds across a refresh", (await ids()) === "101,100,102,103", await ids());
+  await exec(`window.__FAIL.set_pinned = "disk full"; return true`);
+  await exec(`${pinOf(100)}.click(); return true`);
+  await waitUntil(async () => (await text("#status")).includes("Could not save"), "pin failure");
+  check("a pin that cannot be saved is undone", (await ids()) === "101,100,102,103", await ids());
+  await exec(`delete window.__FAIL.set_pinned; return true`);
+  await exec(`${pinOf(101)}.click(); return true`);
+  check("unpinning restores the plain sort", (await ids()) === "100,101,102,103", await ids());
+  check("no row is marked pinned", (await count("#guests tr.pinned")) === 0);
 
   console.log("force stop asks first");
   // F21: status() now also invokes set_status (mirrored to the native GTK

@@ -59,9 +59,6 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
     set_admin_tab_enabled(app, false);
-    // F10: the tray must not keep offering actions against a session that is
-    // gone — with the window hidden, the menu is all there is to go on.
-    crate::tray::clear(app);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -197,8 +194,6 @@ pub async fn connect(
         config::save(&cfg)?;
     }
     // TODO(F2): spawn a background task that re-logs-in every ~90 min.
-    // F10: a session exists now, so the tray menu has guests to list.
-    crate::tray::refresh(&app);
     Ok(ConnectOutcome::Connected)
 }
 
@@ -254,6 +249,36 @@ pub fn set_sort(column: String, desc: bool) -> Result<()> {
     config::save(&cfg)
 }
 
+/// F11: the pinned vmids of the live connection.
+///
+/// Read from the session's own entry, never from a name the page sends, so
+/// Home cannot show the pins of a different cluster.
+#[tauri::command]
+pub fn get_pins(state: State<'_, AppState>) -> Result<Vec<u32>> {
+    let (name, _) = state.current().ok_or(Error::NotLoggedIn)?;
+    let cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    Ok(cfg.host(&name)?.pinned.clone())
+}
+
+/// F11: pin or unpin one guest on the live connection.
+///
+/// The page sends a vmid and a flag only; the connection comes from the
+/// session. The file is written only when the list changed.
+#[tauri::command]
+pub fn set_pinned(state: State<'_, AppState>, vmid: u32, pinned: bool) -> Result<()> {
+    let (name, _) = state.current().ok_or(Error::NotLoggedIn)?;
+    let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    let entry = cfg
+        .hosts
+        .iter_mut()
+        .find(|h| h.name == name)
+        .ok_or_else(|| Error::Config(format!("no connection named {name:?}")))?;
+    if entry.set_pinned(vmid, pinned) {
+        config::save(&cfg)?;
+    }
+    Ok(())
+}
+
 /// The "Add a connection" form (F16).
 ///
 /// Grouped into a struct so the command stays inside clippy's argument limit,
@@ -288,6 +313,8 @@ pub async fn add_connection(
         realm,
         // Pinned below, once the login proves the certificate was accepted.
         cert_fingerprint: trust_fingerprint.clone(),
+        // `upsert_host` keeps the pins of an entry that already exists.
+        pinned: Vec::new(),
     };
     entry.validate()?;
 
@@ -874,9 +901,6 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
 pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clear();
     set_admin_tab_enabled(&app, false);
-    // F10: no session, so nothing for the tray to list. `clear` rather than
-    // `refresh`, because there is no longer anything to ask.
-    crate::tray::clear(&app);
     // Closed, not hidden: the webview holds a session cookie, and the next
     // login may be a different connection entirely.
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {

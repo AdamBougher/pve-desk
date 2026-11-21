@@ -75,6 +75,11 @@ pub struct HostConfig {
     /// SHA-256 fingerprint of the node's TLS cert, pinned on first connect (F3).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cert_fingerprint: Option<String>,
+    /// Pinned guests by vmid (F11, Q11.1). Per connection, because a vmid is
+    /// unique only inside one cluster. Home lists them first; the tray lists
+    /// only them (Q10.1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pinned: Vec<u32>,
 }
 
 fn default_port() -> u16 {
@@ -120,10 +125,18 @@ impl Config {
     /// Replace the connection with the same name, or add it, and make it the
     /// default.
     /// Used when setup is re-run so app-level settings survive.
-    pub fn upsert_host(&mut self, host: HostConfig) {
+    ///
+    /// An existing entry keeps its pins (F11): the same id is the same
+    /// cluster, and entering the password again must not erase them.
+    pub fn upsert_host(&mut self, mut host: HostConfig) {
         self.default = host.name.clone();
         match self.hosts.iter_mut().find(|h| h.name == host.name) {
-            Some(existing) => *existing = host,
+            Some(existing) => {
+                if host.pinned.is_empty() {
+                    host.pinned = std::mem::take(&mut existing.pinned);
+                }
+                *existing = host;
+            }
             None => self.hosts.push(host),
         }
     }
@@ -153,6 +166,23 @@ impl Config {
 }
 
 impl HostConfig {
+    /// Pin or unpin one guest (F11). Returns whether anything changed, so the
+    /// caller writes the file only when it must. The list stays sorted and
+    /// holds each vmid once.
+    pub fn set_pinned(&mut self, vmid: u32, pinned: bool) -> bool {
+        match (self.pinned.binary_search(&vmid), pinned) {
+            (Err(at), true) => {
+                self.pinned.insert(at, vmid);
+                true
+            }
+            (Ok(at), false) => {
+                self.pinned.remove(at);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Stable id for a connection: unique per user+realm+host, so the same
     /// account on two nodes (or two accounts on one node) never collide.
     /// Never shown in the UI, which displays the fields themselves.
@@ -239,6 +269,7 @@ mod tests {
             username: "root".into(),
             realm: "pam".into(),
             cert_fingerprint: None,
+            pinned: Vec::new(),
         }
     }
 
@@ -318,6 +349,79 @@ mod tests {
         for c in SORT_COLUMNS {
             assert_eq!(sort_or_default(c), *c);
         }
+    }
+
+    /// F11: pins survive a restart, which is a write and a read of this file.
+    #[test]
+    fn pins_round_trip() {
+        let mut h = host();
+        h.pinned = vec![101, 205];
+        let cfg = Config::single(h);
+        let text = render(&cfg).unwrap();
+        assert_eq!(parse(&text).unwrap(), cfg);
+    }
+
+    /// A file written before F11 has no `pinned` key and must load with no
+    /// pins. An empty list is not written, so such a file stays unchanged.
+    #[test]
+    fn pins_default_to_none_and_are_omitted_when_empty() {
+        let cfg = parse(
+            r#"
+            default = "main"
+
+            [[hosts]]
+            name = "main"
+            host = "pve.lan"
+            username = "adam"
+            realm = "pve"
+            "#,
+        )
+        .unwrap();
+        assert!(cfg.hosts[0].pinned.is_empty());
+        assert!(!render(&cfg).unwrap().contains("pinned"));
+    }
+
+    /// F11 scenario "Pins belong to their connection": the same vmid on a
+    /// second connection is not pinned.
+    #[test]
+    fn pins_belong_to_their_connection() {
+        let mut work = host();
+        work.name = "work".into();
+        work.host = "10.0.0.5".into();
+        let mut cfg = Config::single(host());
+        cfg.upsert_host(work);
+        cfg.hosts[0].set_pinned(101, true);
+        let back = parse(&render(&cfg).unwrap()).unwrap();
+        assert_eq!(back.host("main").unwrap().pinned, vec![101]);
+        assert!(back.host("work").unwrap().pinned.is_empty());
+    }
+
+    #[test]
+    fn set_pinned_keeps_one_sorted_copy() {
+        let mut h = host();
+        assert!(h.set_pinned(205, true));
+        assert!(h.set_pinned(101, true));
+        assert!(!h.set_pinned(101, true), "pinning twice changes nothing");
+        assert_eq!(h.pinned, vec![101, 205]);
+        assert!(h.set_pinned(205, false));
+        assert!(
+            !h.set_pinned(999, false),
+            "unpinning a stranger changes nothing"
+        );
+        assert_eq!(h.pinned, vec![101]);
+    }
+
+    /// Re-adding a connection (same id) must not erase its pins.
+    #[test]
+    fn upsert_keeps_the_pins() {
+        let mut h = host();
+        h.pinned = vec![101];
+        let mut cfg = Config::single(h);
+        let mut again = host();
+        again.port = 8007;
+        cfg.upsert_host(again);
+        assert_eq!(cfg.host("main").unwrap().pinned, vec![101]);
+        assert_eq!(cfg.host("main").unwrap().port, 8007);
     }
 
     #[test]
