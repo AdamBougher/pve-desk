@@ -65,11 +65,15 @@ Windows and wanted the same experience on Linux, so I built one.
   than ~90 minutes is renewed before the next call, and a ticket the node
   rejects anyway triggers one silent re-login and a retry. If that fails too,
   you land back on the launcher with the reason.
+- **Pinned guests.** A star on each row pins a guest. Pinned guests come
+  first in Home, sorted among themselves by the column you chose, and they
+  are the guests the tray lists. Pins are saved per connection, so the same
+  VMID on another cluster is not pinned.
 - **Log out.** Drops the session, keeps the saved credentials.
 - **A tray icon, and a window that closes to it.** Closing the window no
   longer quits the app — it hides to the system tray, and **Quit** in the
-  tray menu is how you actually exit. The menu lists every guest in the
-  session with the one action its state allows, Start for a stopped guest or
+  tray menu is how you actually exit. The menu lists the guests you pinned
+  in Home, each with the one action its state allows, Start for a stopped guest or
   Shutdown for a running one, so a VM can be started without opening the
   window. The forced stop is deliberately not there: it is the action that
   asks before it fires, and the confirmation lives in the window. If the tray
@@ -91,7 +95,8 @@ Honest limits, so you can judge it before installing:
 - **The tray's guest list is unproven.** The icon, the menu, closing to the
   tray, Show and Quit were all driven over DBus and work. What has never run
   against a real node is the part that lists guests and powers them from the
-  menu.
+  menu. Pins (F11) were tested only in the frontend harness and in unit
+  tests, not against a real node.
 - **A few paths are unproven**, including the real 90-minute ticket refresh
   (only tested with the threshold lowered to seconds) and running two saved
   connections side by side.

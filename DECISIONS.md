@@ -630,6 +630,36 @@ a view people read rather than search, which is a different premise — so the
 status filter is in, and tag filters stay out for the reason above, not by
 inheritance.
 
+### Favourites are pins on the connection (F11, 2026-11-21)
+**Q11.1: a `pinned` list of vmids on each `[[hosts]]` entry in
+`config.toml`**, with `serde(default)`, so a file written before F11 loads
+unchanged (the pattern `sort` uses). Per connection because a vmid is unique
+only inside one cluster. Rust must read the list, because the tray builds its
+menu with no webview (Q10.1), so the frontend cannot own it.
+
+Rejected: **a top-level `[pins]` table keyed by connection id**. Pins could
+outlive a removed connection unless `remove_host` also cleans the table. On the
+host entry, F19's removal deletes them with no extra code. Rejected: **a
+separate `pins.toml`**. A second file format and a second load/save path for a
+short list.
+
+Re-adding a connection that exists (same id, so the same cluster) keeps its
+pins. `upsert_host` carries them over; without that, entering the password
+again would erase them.
+
+**Q11.2: the same table, pinned rows first.** `compareGuests` puts pinned
+before unpinned, then the F26 sort orders each group. The pinned group does
+not reverse when the sort runs descending; "pinned at the top" stays true in
+both directions. A separate section above the table was rejected: `syncRows`,
+`applyFilter` and the F25 detail rows would each have to learn two
+containers. With one table, the order is the only change.
+
+**Q11.3 was answered by Q10.1**: the tray menu lists only the pinned guests of
+the live connection. With a session and no pins, the menu shows one disabled
+item, "No pinned guests". A pin changed in Home reaches the menu when the window
+hides, which is when the menu is rebuilt already ("Where the menu's guest list
+comes from").
+
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
 wait. Decided when F14's tab bar turned out to need a GTK widget: Linux is

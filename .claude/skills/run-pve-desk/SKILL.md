@@ -10,7 +10,7 @@ and they are driven differently:
 
 | Layer | How | Needs a node? |
 | --- | --- | --- |
-| Frontend (`ui/main.js`, 10 `invoke` commands) | `driver.mjs` — WebKitGTK + WebDriver, `window.__TAURI__` stubbed | no |
+| Frontend (`ui/main.js`, 14 `invoke` commands) | `driver.mjs` — WebKitGTK + WebDriver, `window.__TAURI__` stubbed | no |
 | Rust (`src-tauri/src/*.rs`) | `cargo test` | no |
 | The whole app, visually | `app-shot.sh` | runs without one; the launcher just reports unreachable |
 
@@ -54,10 +54,10 @@ injects the stub ahead of `main.js`; **nothing is written into `ui/`**.
 node .claude/skills/run-pve-desk/driver.mjs smoke
 ```
 
-44 checks, ~30s, exit 0 on success. It walks: launcher render → probe
+89 checks, ~30s, exit 0 on success. It walks: launcher render → probe
 statuses → certificate refusal and its fingerprint → connect → guest rows
 and which power buttons each status gets → F22's diff-only patching → the
-hostile-name XSS check → search filtering → force-stop confirm (cancel *and*
+hostile-name XSS check → search filtering → F25 detail rows → F26 sort and status filter → F11 pins (pinned first, per-group sort, search, a failed save undone) → force-stop confirm (cancel *and*
 confirm) → the exact `power_action` arguments → F23's poll pause/resume on
 tab and focus → a backend error reaching the status line → `session-lost`
 returning to the launcher → F24's launcher-does-not-wait-for-probes.

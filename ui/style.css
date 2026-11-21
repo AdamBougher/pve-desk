@@ -61,6 +61,27 @@ button.disclose:focus-visible { outline: 2px solid #e57000; outline-offset: 1px;
 button.disclose::before { content: "\25B8 "; opacity: 0.6; }
 button.disclose[aria-expanded="true"]::before { content: "\25BE "; opacity: 0.6; }
 
+/* F11: the pin toggle, and a line under the pinned group. */
+th.pin, td.pin { width: 1.5em; padding-right: 0; }
+button.pin {
+  all: unset;
+  cursor: pointer;
+  font: inherit;
+  opacity: 0.4;
+}
+button.pin[aria-pressed="true"] { opacity: 1; color: #e57000; }
+button.pin:hover { opacity: 1; }
+button.pin:focus-visible { outline: 2px solid #e57000; outline-offset: 1px; }
+tr.pinned + tr:not(.pinned) > td { border-top: 2px solid #8886; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 /* F25: the detail strip, one row spanning the table under its guest. */
 tr.detail > td { background: #8881; padding: 4px 8px 8px 28px; }
 tr.detail dl {

@@ -254,6 +254,36 @@ pub fn set_sort(column: String, desc: bool) -> Result<()> {
     config::save(&cfg)
 }
 
+/// F11: the pinned vmids of the live connection.
+///
+/// Read from the session's own entry, never from a name the page sends, so
+/// Home cannot show the pins of a different cluster.
+#[tauri::command]
+pub fn get_pins(state: State<'_, AppState>) -> Result<Vec<u32>> {
+    let (name, _) = state.current().ok_or(Error::NotLoggedIn)?;
+    let cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    Ok(cfg.host(&name)?.pinned.clone())
+}
+
+/// F11: pin or unpin one guest on the live connection.
+///
+/// The page sends a vmid and a flag only; the connection comes from the
+/// session. The file is written only when the list changed.
+#[tauri::command]
+pub fn set_pinned(state: State<'_, AppState>, vmid: u32, pinned: bool) -> Result<()> {
+    let (name, _) = state.current().ok_or(Error::NotLoggedIn)?;
+    let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
+    let entry = cfg
+        .hosts
+        .iter_mut()
+        .find(|h| h.name == name)
+        .ok_or_else(|| Error::Config(format!("no connection named {name:?}")))?;
+    if entry.set_pinned(vmid, pinned) {
+        config::save(&cfg)?;
+    }
+    Ok(())
+}
+
 /// The "Add a connection" form (F16).
 ///
 /// Grouped into a struct so the command stays inside clippy's argument limit,
@@ -288,6 +318,8 @@ pub async fn add_connection(
         realm,
         // Pinned below, once the login proves the certificate was accepted.
         cert_fingerprint: trust_fingerprint.clone(),
+        // `upsert_host` keeps the pins of an entry that already exists.
+        pinned: Vec::new(),
     };
     entry.validate()?;
 

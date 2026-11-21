@@ -1,4 +1,4 @@
-//! F10: the system tray — the session's guests, Show and Quit.
+//! F10: the system tray — the session's pinned guests (F11), Show and Quit.
 //!
 //! Built in Rust, not declared as `trayIcon` in `tauri.conf.json`: a Rust
 //! tray needs no config key and no capability, since `core:tray` permissions
@@ -15,7 +15,7 @@
 //!   `refresh`.
 
 use crate::api::Guest;
-use crate::{commands, AppState};
+use crate::{commands, config, AppState};
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager};
@@ -41,7 +41,7 @@ const GUEST: &str = "g:";
 /// is not fatal: the app runs exactly as it did before F10, and
 /// `CloseRequested` finds no tray and quits.
 pub fn install(app: &AppHandle) {
-    let Ok(menu) = menu_for(app, &[]) else {
+    let Ok(menu) = menu_for(app, None) else {
         return;
     };
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
@@ -78,7 +78,7 @@ pub fn refresh(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let guests = guests(&app).await;
-        rebuild(&app, &guests);
+        rebuild(&app, guests.as_deref());
     });
 }
 
@@ -87,32 +87,46 @@ pub fn refresh(app: &AppHandle) {
 /// For logging out and for a lost session, where there is no longer a
 /// session to ask and the answer is known to be "nothing".
 pub fn clear(app: &AppHandle) {
-    rebuild(app, &[]);
+    rebuild(app, None);
 }
 
-/// The guests the menu should list, or none if the node could not be asked.
+/// The guests the menu should list, or `None` if the node could not be asked.
 ///
-/// Mirrors `refresh()` in `main.js`: templates dropped (Q5.3) and sorted by
-/// vmid, so the tray lists what Home lists in the order Home lists it.
-async fn guests(app: &AppHandle) -> Vec<Guest> {
+/// Only the live connection's pinned guests (F11, Q10.1). The pins are read
+/// from the session's own config entry; a config that cannot be read means no
+/// pins, which lists nothing rather than everything.
+async fn guests(app: &AppHandle) -> Option<Vec<Guest>> {
     let state = app.state::<AppState>();
+    let (name, _) = state.current()?;
+    let pins = config::load()
+        .ok()
+        .flatten()
+        .and_then(|cfg| cfg.host(&name).ok().map(|h| h.pinned.clone()))
+        .unwrap_or_default();
     // Reuses the command the frontend calls, which already re-logs in on a
     // stale ticket and drops a dead session (F2, Q2.2). An error here is
     // either "no session" or a node that did not answer; both mean the menu
     // lists no guests, and nothing is logged — error strings are not a place
     // this project writes to (hard rule: nothing about a credential reaches
     // a log).
-    let Ok(all) = commands::list_guests(app.clone(), state).await else {
-        return Vec::new();
-    };
-    let mut guests: Vec<Guest> = all.into_iter().filter(|g| g.template != Some(1)).collect();
+    let all = commands::list_guests(app.clone(), state).await.ok()?;
+    Some(pinned_only(all, &pins))
+}
+
+/// The menu's list: pinned guests only, templates dropped (Q5.3), in vmid
+/// order. Pure, so the filter is tested without a node.
+fn pinned_only(all: Vec<Guest>, pins: &[u32]) -> Vec<Guest> {
+    let mut guests: Vec<Guest> = all
+        .into_iter()
+        .filter(|g| g.template != Some(1) && pins.contains(&g.vmid))
+        .collect();
     guests.sort_by_key(|g| g.vmid);
     guests
 }
 
 /// Swap in a menu built from `guests`. A tray that is not there is not an
 /// error — see `install`.
-fn rebuild(app: &AppHandle, guests: &[Guest]) {
+fn rebuild(app: &AppHandle, guests: Option<&[Guest]>) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
@@ -123,20 +137,19 @@ fn rebuild(app: &AppHandle, guests: &[Guest]) {
 
 /// One item per guest, then Show and Quit.
 ///
+/// `None` means no session (or a node that did not answer); `Some` of an
+/// empty list means a session with nothing pinned (F11).
+///
 /// Show and Quit come last and are always present, so the menu is useful
 /// even with no session (and so Quit does not move under the cursor as the
 /// guest list changes length).
-fn menu_for(app: &AppHandle, guests: &[Guest]) -> tauri::Result<Menu<tauri::Wry>> {
+fn menu_for(app: &AppHandle, guests: Option<&[Guest]>) -> tauri::Result<Menu<tauri::Wry>> {
+    let text = empty_label(guests);
+    let guests = guests.unwrap_or_default();
     let mut items: Vec<MenuItem<tauri::Wry>> = Vec::with_capacity(guests.len() + 2);
-    if guests.is_empty() {
+    if let Some(text) = text {
         // Disabled, so it reads as a statement rather than something to pick.
-        items.push(MenuItem::with_id(
-            app,
-            "none",
-            "No connection",
-            false,
-            None::<&str>,
-        )?);
+        items.push(MenuItem::with_id(app, "none", text, false, None::<&str>)?);
     }
     for g in guests {
         let label = escape_mnemonic(&guest_label(g));
@@ -174,6 +187,15 @@ fn menu_for(app: &AppHandle, guests: &[Guest]) -> tauri::Result<Menu<tauri::Wry>
     Menu::with_items(app, &refs)
 }
 
+/// The disabled line shown in place of guests, if any.
+fn empty_label(guests: Option<&[Guest]>) -> Option<&'static str> {
+    match guests {
+        None => Some("No connection"),
+        Some([]) => Some("No pinned guests"),
+        Some(_) => None,
+    }
+}
+
 /// Act on a picked item. Runs on the main thread, so the power action goes
 /// to a task rather than blocking the menu.
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
@@ -201,7 +223,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
                     // user gets with the window hidden. If the action failed,
                     // the item stays as it was, which is the truth.
                     let guests = guests(&app).await;
-                    rebuild(&app, &guests);
+                    rebuild(&app, guests.as_deref());
                 });
             }
         }
@@ -310,6 +332,37 @@ mod tests {
             netin: None,
             netout: None,
         }
+    }
+
+    /// F11 / Q10.1: the menu lists pinned guests only, in vmid order, and
+    /// never a template even if one is pinned.
+    #[test]
+    fn the_menu_lists_only_pinned_guests() {
+        let mut template = guest(300, Some("tpl"), "stopped");
+        template.template = Some(1);
+        let all = vec![
+            guest(205, Some("db"), "running"),
+            guest(101, Some("web"), "stopped"),
+            guest(150, Some("other"), "running"),
+            template,
+        ];
+        let listed: Vec<u32> = pinned_only(all, &[300, 205, 101])
+            .iter()
+            .map(|g| g.vmid)
+            .collect();
+        assert_eq!(listed, vec![101, 205]);
+    }
+
+    #[test]
+    fn no_pins_lists_nothing() {
+        assert!(pinned_only(vec![guest(101, None, "running")], &[]).is_empty());
+    }
+
+    #[test]
+    fn the_empty_menu_says_why() {
+        assert_eq!(empty_label(None), Some("No connection"));
+        assert_eq!(empty_label(Some(&[])), Some("No pinned guests"));
+        assert_eq!(empty_label(Some(&[guest(1, None, "running")])), None);
     }
 
     #[test]

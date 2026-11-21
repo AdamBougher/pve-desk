@@ -55,6 +55,8 @@ let guests = [];
 // Wipe the table and the cached list together (logout, session loss).
 function clearGuests() {
   guests = [];
+  // F11: pins belong to the connection, so they go with its session.
+  pins.clear();
   busy.clear();
   rowsByKey.clear();
   $("guests").replaceChildren();
@@ -267,7 +269,10 @@ $("setup-form").addEventListener("submit", async (e) => {
 
 // ---- session ----
 
-function startSession() {
+async function startSession() {
+  // F11: read the pins before the first refresh, so the first paint is
+  // already in pinned-first order.
+  await loadPins();
   // F21: Home is where you land, not Admin — Q16.3's auto-open is reversed.
   // Admin builds lazily on its own tab's first click, same as it always did.
   show("main");
@@ -398,6 +403,10 @@ let sortDesc = false;
 // the first scenario forbids. The tie-break is deliberately outside the
 // direction flip: reversing it too would reintroduce the swap.
 function compareGuests(a, b) {
+  // F11 Q11.2: pinned guests first, then the sort inside each group. Outside
+  // the direction flip, so the pins stay at the top in both directions.
+  const pa = pins.has(a.vmid);
+  if (pa !== pins.has(b.vmid)) return pa ? -1 : 1;
   const dir = sortDesc ? -1 : 1;
   let r = 0;
   if (sortColumn === "name") {
@@ -457,6 +466,50 @@ async function loadSort() {
     // Keep the defaults.
   }
   markSortedHeader();
+}
+
+// ---- F11: pins ----
+//
+// The pinned vmids of the live connection. The backend owns the list
+// (config.toml, per connection, Q11.1) because the tray reads it too.
+const pins = new Set();
+
+async function loadPins() {
+  pins.clear();
+  try {
+    for (const vmid of await invoke("get_pins")) pins.add(vmid);
+  } catch {
+    // No pins is a correct list, only a less useful one.
+  }
+}
+
+async function togglePin(vmid) {
+  const pinned = !pins.has(vmid);
+  if (pinned) pins.add(vmid);
+  else pins.delete(vmid);
+  guests.sort(compareGuests);
+  syncRows();
+  try {
+    await invoke("set_pinned", { vmid, pinned });
+  } catch (err) {
+    // Not saved means it would be gone after a restart, so undo it now
+    // rather than show a pin that is not true.
+    if (pinned) pins.delete(vmid);
+    else pins.add(vmid);
+    guests.sort(compareGuests);
+    syncRows();
+    status(`Could not save the pin: ${err}`);
+  }
+}
+
+// The star's state and the row's class are set together, so the button and
+// the divider under the pinned group cannot disagree.
+function markPin(entry, pinned) {
+  entry.pinned = pinned;
+  entry.pinButton.setAttribute("aria-pressed", String(pinned));
+  entry.pinButton.textContent = pinned ? "\u2605" : "\u2606";
+  entry.tr.classList.toggle("pinned", pinned);
+  entry.detailTr?.classList.toggle("pinned", pinned);
 }
 
 // ---- F6: power actions ----
@@ -566,6 +619,14 @@ function memText(g) {
 // CLAUDE.md.
 function createRowEntry(g) {
   const tr = document.createElement("tr");
+  const pinCell = document.createElement("td");
+  pinCell.className = "pin";
+  const pinButton = document.createElement("button");
+  pinButton.type = "button";
+  pinButton.className = "pin";
+  pinButton.setAttribute("aria-label", "Pinned");
+  pinButton.addEventListener("click", () => togglePin(g.vmid));
+  pinCell.append(pinButton);
   const idCell = document.createElement("td");
   const nameCell = document.createElement("td");
   const typeCell = document.createElement("td");
@@ -598,9 +659,11 @@ function createRowEntry(g) {
   memCell.textContent = memText(g);
   fillPowerCell(powerTd, g);
 
-  tr.append(idCell, nameCell, typeCell, nodeCell, statusCell, cpuCell, memCell, powerTd);
-  return {
+  tr.append(pinCell, idCell, nameCell, typeCell, nodeCell, statusCell, cpuCell, memCell, powerTd);
+  const entry = {
     tr,
+    pinButton,
+    pinned: false,
     nameCell,
     typeCell,
     nodeCell,
@@ -629,6 +692,8 @@ function createRowEntry(g) {
     detailCells: null,
     detailText: null,
   };
+  markPin(entry, pins.has(g.vmid));
+  return entry;
 }
 
 // F25: one detail strip for a guest, spanning the table under its row.
@@ -636,7 +701,7 @@ function buildDetail(entry, g) {
   const tr = document.createElement("tr");
   tr.className = "detail";
   const td = document.createElement("td");
-  td.colSpan = 8;
+  td.colSpan = 9;
   const dl = document.createElement("dl");
   const cells = {};
   for (const [key, label] of [
@@ -653,6 +718,7 @@ function buildDetail(entry, g) {
   td.append(dl);
   tr.append(td);
   entry.detailTr = tr;
+  tr.classList.toggle("pinned", entry.pinned);
   entry.detailCells = cells;
   entry.detailText = {};
   fillDetail(entry, g);
@@ -739,6 +805,9 @@ function patchRow(entry, g) {
     entry.memCell.textContent = mem;
     entry.memText = mem;
   }
+
+  const pinned = pins.has(g.vmid);
+  if (pinned !== entry.pinned) markPin(entry, pinned);
 
   const working = busy.has(guestKey(g));
   if (g.status !== entry.status || working !== entry.working) {

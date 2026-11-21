@@ -103,6 +103,8 @@ pub fn run() {
             commands::list_guests,
             commands::get_sort,
             commands::set_sort,
+            commands::get_pins,
+            commands::set_pinned,
             commands::power_action,
             commands::open_spice,
             commands::open_admin_panel,
