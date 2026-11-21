@@ -2,8 +2,8 @@
 
 Linux desktop client for Proxmox VE, in Rust on Tauri 2. A launcher of saved
 connections, Admin (the embedded Proxmox web UI, signed in), a guest list
-with start / shutdown / stop on each row, and a tray icon that lists the
-guests. SPICE is written but unproven.
+with start / shutdown / stop on each row, and a tray icon (Show and Quit)
+that the window closes to. SPICE is written but unproven.
 
 ## Where things live
 

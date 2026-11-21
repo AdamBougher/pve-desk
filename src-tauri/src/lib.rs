@@ -6,7 +6,7 @@
 //! - `secrets`  — password in the system keyring (F1, F2)
 //! - `api`      — Proxmox API client, login ticket, VM list, power (F2, F5, F6)
 //! - `spice`    — SPICE .vv file + remote-viewer launch (F7)
-//! - `tray`     — the system tray icon and its menu (F10)
+//! - `tray`     — the system tray icon: Show and Quit (F10)
 //! - `commands` — Tauri commands the frontend calls
 //! - `error`    — shared error type
 
@@ -133,9 +133,7 @@ pub fn run() {
                     let _ = tauri::Emitter::emit(window, "window-focus", *focused);
                 }
                 // F10 Q4.2: closing the window hides it to the tray instead
-                // of quitting, which is the only reading under which the
-                // tray's whole point ("starting a VM does not need the
-                // window") is true. Quit is a tray menu item.
+                // of quitting. Quit is a tray menu item.
                 //
                 // No tray, no trap: if the icon could not be created there is
                 // nothing to hide to, so the close is allowed through and the
@@ -146,9 +144,6 @@ pub fn run() {
                     if tray::exists(&app) {
                         api.prevent_close();
                         let _ = window.hide();
-                        // The menu is about to become the only way to act, so
-                        // this is one of the three moments it is rebuilt.
-                        tray::refresh(&app);
                     }
                 }
                 _ => {}
@@ -161,9 +156,7 @@ pub fn run() {
             // children out itself.
             #[cfg(target_os = "linux")]
             commands::install_native_tabs(app.handle());
-            // F10: the tray, with an empty guest list — F16 means the app
-            // always starts on the launcher with no session, so there is
-            // nothing to list yet.
+            // F10: the tray, Show and Quit.
             tray::install(app.handle());
             Ok(())
         })

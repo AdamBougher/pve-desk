@@ -654,11 +654,12 @@ both directions. A separate section above the table was rejected: `syncRows`,
 `applyFilter` and the F25 detail rows would each have to learn two
 containers. With one table, the order is the only change.
 
-**Q11.3 was answered by Q10.1**: the tray menu lists only the pinned guests of
-the live connection. With a session and no pins, the menu shows one disabled
-item, "No pinned guests". A pin changed in Home reaches the menu when the window
-hides, which is when the menu is rebuilt already ("Where the menu's guest list
-comes from").
+**Q11.3 was answered by Q10.1** at first: the tray menu listed only the
+pinned guests. **Superseded the same day** (2026-11-21, see "The tray"): the
+tray lists no guests, so pins are a Home feature only.
+
+Confirmed by the user on the live node, 2026-11-21: pinned guests lead Home
+and pins survive a restart.
 
 ### Linux first (2026-10-21)
 Where the UI can't be the same on every platform, Linux wins and the others
@@ -1072,6 +1073,17 @@ Unchanged by this: the prerequisite order above, and the unmeasured 3s
 (checked again 2026-10-24).
 
 ### The tray (F10, 2026-10-24)
+**Superseded 2026-11-21: the menu is Show pve-desk and Quit, and nothing
+else.** Q10.1, Q10.2 and Q11.3 below no longer hold. With F11 in, the user ran
+the pinned-guest menu on the live node and did not want it: Shutdown from the
+tray was not wanted, and a guest list in the tray was "not sure that's
+useful". Rejected at the same time: **Start only, for every guest or only the
+pinned ones**, with running guests greyed out. Removed with the list: the
+guest fetch, the tray power path, and the rebuild on connect, on hide and
+after an action. Q4.2 (close hides to the tray) and the no-tray fallback stay.
+The sections below are kept for the Linux facts and the DBus method, which
+still apply.
+
 **Q10.1: every guest in the session, not favourites.** Favourites (F11, #16)
 was the feature's premise, but F11 is not built and there are two nodes and a
 handful of guests here, so a flat list is short enough to read. Making F10

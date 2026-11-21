@@ -59,9 +59,6 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
     set_admin_tab_enabled(app, false);
-    // F10: the tray must not keep offering actions against a session that is
-    // gone — with the window hidden, the menu is all there is to go on.
-    crate::tray::clear(app);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -197,8 +194,6 @@ pub async fn connect(
         config::save(&cfg)?;
     }
     // TODO(F2): spawn a background task that re-logs-in every ~90 min.
-    // F10: a session exists now, so the tray menu has guests to list.
-    crate::tray::refresh(&app);
     Ok(ConnectOutcome::Connected)
 }
 
@@ -906,9 +901,6 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
 pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     state.clear();
     set_admin_tab_enabled(&app, false);
-    // F10: no session, so nothing for the tray to list. `clear` rather than
-    // `refresh`, because there is no longer anything to ask.
-    crate::tray::clear(&app);
     // Closed, not hidden: the webview holds a session cookie, and the next
     // login may be a different connection entirely.
     if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {

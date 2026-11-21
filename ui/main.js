@@ -471,7 +471,7 @@ async function loadSort() {
 // ---- F11: pins ----
 //
 // The pinned vmids of the live connection. The backend owns the list
-// (config.toml, per connection, Q11.1) because the tray reads it too.
+// (config.toml, per connection, Q11.1), so pins survive a restart.
 const pins = new Set();
 
 async function loadPins() {
