@@ -4,15 +4,10 @@
 use crate::api::{self, Guest, Session};
 use crate::config::{self, Config, HostConfig};
 use crate::error::{Error, Result};
+use crate::platform::{Os, Platform};
 use crate::{secrets, spice, AppState};
 use tauri::webview::Cookie;
-use tauri::{AppHandle, Emitter, Manager, State, Url, WebviewUrl};
-// The admin panel is a child webview on Linux and its own window everywhere
-// else (see `show_admin`), so the two branches need different builders.
-#[cfg(not(target_os = "linux"))]
-use tauri::WebviewWindowBuilder;
-#[cfg(target_os = "linux")]
-use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize};
+use tauri::{AppHandle, Emitter, Manager, State, Url};
 
 /// Label of the admin panel's webview (F14).
 ///
@@ -21,15 +16,7 @@ use tauri::{webview::WebviewBuilder, LogicalPosition, LogicalSize};
 /// command (CLAUDE.md hard rule). Note the capability names `webviews`, not
 /// `windows` — a window-scoped capability applies to *every* webview in that
 /// window, which would hand this one `core:default`.
-const ADMIN_WEBVIEW: &str = "admin";
-
-/// Label of the window and local webview the frontend runs in.
-///
-/// Only the Linux build needs it: the tab strip and the child admin webview
-/// both address the main window by label. Elsewhere the admin panel is its
-/// own window and nothing here looks the main one up.
-#[cfg(target_os = "linux")]
-const MAIN: &str = "main";
+pub(crate) const ADMIN_WEBVIEW: &str = "admin";
 
 /// Log in again with the entry's keyring password, replacing the stored
 /// session (F2).
@@ -58,7 +45,7 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 /// seconds against a connection that is gone (Q2.2).
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
-    set_session_buttons_enabled(app, false);
+    Os::set_admin_enabled(app, false);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -174,7 +161,7 @@ pub async fn connect(
         Err(e) => return Err(e),
     };
     state.set_only(name.clone(), session);
-    set_session_buttons_enabled(&app, true);
+    Os::set_admin_enabled(&app, true);
 
     // Persist what the user just confirmed, so later connects verify against
     // it instead of asking again.
@@ -340,7 +327,7 @@ pub async fn add_connection(
     config::save(&cfg)?;
 
     state.set_only(name, session);
-    set_session_buttons_enabled(&app, true);
+    Os::set_admin_enabled(&app, true);
     Ok(ConnectOutcome::Connected)
 }
 
@@ -439,261 +426,32 @@ pub async fn open_spice(
     spice::launch(&cfg.remote_viewer_path, &node, vmid, &data).await
 }
 
-/// Fit the two webviews around the tab bar.
-///
-/// **Linux has no webview geometry, and no way to cap a widget's height.**
-/// `tauri-runtime-wry` builds a child webview into the window's `GtkBox`, and
-/// wry packs it with `pack_start(webview, true, true, 0)` with
-/// `is_in_fixed_parent = false`, so `set_bounds` is ignored. Nor can the
-/// local webview simply be pinned to the tab bar's height: `set_size_request`
-/// sets a *minimum*, and GTK3 hands a box child its **natural** size before
-/// giving anything to expanding siblings. Measured: with `req = -1x36` the
-/// local webview reported `preferred_h = (min 36, nat 700)` and took all 700
-/// pixels, leaving the admin webview 1.
-///
-/// So the tab bar is a native GTK widget (see `install_native_tabs`) and
-/// exactly one webview is visible at a time — the visible one fills the space
-/// below the strip, which needs no capping at all.
-/// Window title follows the visible tab (F21, Q21.1). Linux-only, like the
-/// tabs themselves: elsewhere Admin is its own window with its own title
-/// ("Proxmox"), and the main window never shows anything else.
-#[cfg(target_os = "linux")]
-fn set_main_title(app: &AppHandle, tab: &str) {
-    // Reads tauri.conf.json's own "version" field via Tauri's PackageInfo,
-    // not a second hardcoded copy — the same field the release workflow's
-    // version guard already cross-checks against the tag and the PKGBUILD.
-    let version = &app.package_info().version;
-    if let Some(window) = app.get_window(MAIN) {
-        let _ = window.set_title(&format!("pve-desk {version} — {tab}"));
-    }
-}
-
-#[cfg(target_os = "linux")]
-pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
-    let Some(local) = app.get_webview(MAIN) else {
-        return;
-    };
-    let _ = if admin_visible {
-        local.hide()
-    } else {
-        local.show()
-    };
-}
-
-// The Admin and Log out buttons, so their sensitivity can be toggled with the
-// session (F33 Q33.3: one switch greys both).
-// A thread-local rather than app state because GTK widgets are not `Send`:
-// everything that touches it runs on the main thread, either inside
-// `with_webview` or via `run_on_main_thread`.
-#[cfg(target_os = "linux")]
-thread_local! {
-    static SESSION_BUTTONS: std::cell::RefCell<Vec<gtk::Button>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-// The native status label beside the tab strip (F21, Q21.2).
-// Exists so a certificate message from `app.emit("admin-cert", ...)` is
-// never hidden: it fires while the admin webview is loading, which is
-// exactly when the page's own `#statusbar` is covered. Same thread-local
-// pattern as `SESSION_BUTTONS` and the same reason — GTK widgets are not `Send`.
-#[cfg(target_os = "linux")]
-thread_local! {
-    static STATUS_LABEL: std::cell::RefCell<Option<gtk::Label>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Grey the Admin tab and Log out until there is a session to act on.
-///
-/// Without this the buttons are live on the launcher, where pressing them
-/// can only produce an error or do nothing.
-#[cfg(target_os = "linux")]
-pub fn set_session_buttons_enabled(app: &AppHandle, enabled: bool) {
-    let _ = app.run_on_main_thread(move || {
-        SESSION_BUTTONS.with_borrow(|buttons| {
-            for button in buttons {
-                gtk::prelude::WidgetExt::set_sensitive(button, enabled);
-            }
-        });
-    });
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn set_session_buttons_enabled(_app: &AppHandle, _enabled: bool) {}
-
 /// F33: whether this build has the native top bar, which holds Log out.
 ///
 /// The page hides its own Log out when this is true, so there is one Log out
 /// only (Q33.1). Linux-only like the strip itself (F14).
 #[tauri::command]
 pub fn has_top_bar() -> bool {
-    cfg!(target_os = "linux")
+    Os::has_top_bar()
 }
 
-/// Write a status message to the native label beside the tab strip (F21).
-///
-/// `main.js`'s `status()` calls this in addition to its own page text, so
-/// the message is visible even while Admin covers the page. Elsewhere Admin
-/// is its own window and never covers anything, so there is no label to
-/// write to — a no-op stub, same split as `set_session_buttons_enabled`.
+/// Write a status message where it stays visible while Admin covers the
+/// page (F21). On Linux that is the native label beside the tab strip;
+/// elsewhere Admin is its own window and never covers anything, so this
+/// does nothing.
 #[tauri::command]
-#[cfg(target_os = "linux")]
 pub fn set_status(app: AppHandle, msg: String) {
-    let _ = app.run_on_main_thread(move || {
-        STATUS_LABEL.with_borrow(|label| {
-            if let Some(label) = label {
-                gtk::prelude::LabelExt::set_text(label, &msg);
-            }
-        });
-    });
+    Os::set_status(&app, msg);
 }
 
-#[tauri::command]
-#[cfg(not(target_os = "linux"))]
-pub fn set_status(_app: AppHandle, _msg: String) {}
-
-/// Style for the tab strip. Uses the theme's own colours rather than fixed
-/// ones, so it follows whatever GTK theme is in use.
-#[cfg(target_os = "linux")]
-const TAB_CSS: &str = "
-.pve-tabstrip {
-  padding: 4px 6px;
-  border-bottom: 1px solid @borders;
-}
-.pve-tabstrip button {
-  padding: 1px 18px;
-  min-height: 26px;
-}
-";
-
-/// The tab bar, as real GTK buttons above both webviews.
-///
-/// Built once at startup. Switching is driven from here rather than from the
-/// page: while the admin panel is up the local webview is hidden, and relying
-/// on a hidden webview's JavaScript to be able to switch back would be a way
-/// to get stuck.
-#[cfg(target_os = "linux")]
-pub fn install_native_tabs(app: &AppHandle) {
-    use gtk::prelude::{
-        BoxExt, ButtonExt, Cast, CssProviderExt, LabelExt, StyleContextExt, WidgetExt,
-    };
-
-    let Some(local) = app.get_webview(MAIN) else {
-        return;
-    };
-    let app = app.clone();
-    let _ = local.with_webview(move |platform| {
-        let Some(parent) = platform.inner().parent() else {
-            return;
-        };
-        let Ok(vbox) = parent.downcast::<gtk::Box>() else {
-            return;
-        };
-
-        let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        strip.style_context().add_class("pve-tabstrip");
-
-        // "linked" is GTK's own segmented-control look, so the pair reads as
-        // one control in whatever theme is running.
-        let group = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        group.style_context().add_class("linked");
-
-        let admin = gtk::Button::with_label("Admin");
-        let home = gtk::Button::with_label("Home");
-        group.pack_start(&admin, false, false, 0);
-        group.pack_start(&home, false, false, 0);
-
-        // F33 Q33.1: the bar reads `[status text …] [Admin | Home]  [Log out]`.
-        // Log out is outside the linked group, with a gap after Home, so it
-        // does not read as a third tab and a near-miss on Home does not log
-        // out. `pack_end` fills from the right, so Log out goes in first.
-        let logout = gtk::Button::with_label("Log out");
-        logout.set_margin_start(12);
-        strip.pack_end(&logout, false, false, 0);
-        strip.pack_end(&group, false, false, 0);
-
-        // F21 Q21.2: a native label for status text, so an admin-cert
-        // message (in particular the REFUSED one — CLAUDE.md's hard rule on
-        // an unknown certificate) is visible even while Admin covers the
-        // page's own #statusbar. Takes the remaining width on the left, and
-        // reads from the left edge rather than centred in that space.
-        let status_label = gtk::Label::new(None);
-        status_label.set_xalign(0.0);
-        strip.pack_start(&status_label, true, true, 6);
-        STATUS_LABEL.with_borrow_mut(|label| *label = Some(status_label));
-
-        // Nothing to act on until a session exists; `set_session_buttons_enabled`
-        // turns both on at connect and off again at logout or session loss.
-        admin.set_sensitive(false);
-        logout.set_sensitive(false);
-        SESSION_BUTTONS.with_borrow_mut(|buttons| {
-            *buttons = vec![admin.clone(), logout.clone()];
-        });
-
-        if let Some(screen) = gtk::gdk::Screen::default() {
-            let provider = gtk::CssProvider::new();
-            if provider.load_from_data(TAB_CSS.as_bytes()).is_ok() {
-                gtk::StyleContext::add_provider_for_screen(
-                    &screen,
-                    &provider,
-                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-                );
-            }
-        }
-
-        let app_admin = app.clone();
-        admin.connect_clicked(move |_| {
-            let app = app_admin.clone();
-            // Opening may need a login, so it cannot run on this thread.
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = show_admin(&app).await {
-                    let _ = app.emit("admin-cert", format!("admin panel: {e}"));
-                }
-            });
-        });
-
-        let app_home = app.clone();
-        home.connect_clicked(move |_| {
-            if let Some(webview) = app_home.get_webview(ADMIN_WEBVIEW) {
-                let _ = webview.hide();
-            }
-            layout_admin(&app_home, false);
-            set_main_title(&app_home, "Home");
-            let _ = app_home.emit("tab", "home");
-        });
-
-        // Q33.2: the backend ends the session itself, so the user lands on
-        // Home with no session even if the hidden page's JavaScript never
-        // answers.
-        let app_logout = app.clone();
-        logout.connect_clicked(move |_| {
-            if let Err(e) = end_session(&app_logout) {
-                set_status(app_logout.clone(), format!("Log out failed: {e}"));
-            }
-        });
-
-        // Above both webviews. A non-expanding button box has a small,
-        // truthful natural height, which is exactly what a webview does not.
-        vbox.pack_start(&strip, false, false, 0);
-        vbox.reorder_child(&strip, 0);
-        strip.show_all();
-
-        // F21 Q21.1: the app always opens on Home (F16), so the title must
-        // say so from the first frame, not only after the first tab switch.
-        // Caught by actually running the app — app-shot.sh showed the tab
-        // strip correctly reading "Home" while the titlebar still said the
-        // bare "pve-desk" from tauri.conf.json, because every other call to
-        // set_main_title sits at a transition point that hadn't fired yet.
-        set_main_title(&app, "Home");
-    });
-}
-
-/// F4/F14: show the Proxmox web UI, already logged in, as a webview inside
-/// the main window below the tab bar.
+/// F4/F14: show the Proxmox web UI, already logged in. On Linux it is a
+/// webview inside the main window below the tab bar; elsewhere its own
+/// window (`platform`).
 ///
 /// The webview starts blank so the session ticket can be installed before any
 /// request goes out, then navigates to the node. It stays a *main-frame* load
-/// rather than an iframe, which is what lets the certificate pinning below
-/// keep working unchanged.
+/// rather than an iframe, which is what lets the certificate pinning keep
+/// working unchanged.
 #[tauri::command]
 pub async fn open_admin_panel(app: AppHandle) -> Result<()> {
     show_admin(&app).await
@@ -708,21 +466,7 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
     // Already built: bring it back.
     if let Some(existing) = app.get_webview(ADMIN_WEBVIEW) {
         existing.show()?;
-        #[cfg(target_os = "linux")]
-        {
-            layout_admin(&app, true);
-            set_main_title(&app, "Admin");
-            // F23: Home's poll pauses while nothing can see it. Non-Linux
-            // has no tab concept — Admin is its own window there, Home's
-            // window stays fully visible — so this is Linux-only like the
-            // title call beside it.
-            let _ = app.emit("tab", "admin");
-        }
-        #[cfg(not(target_os = "linux"))]
-        if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
-            window.set_focus()?;
-        }
-        return Ok(());
+        return Os::show(&app);
     }
 
     let (host, session) = current_host(&state).await?;
@@ -734,33 +478,7 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
         .map_err(|e| Error::Config(format!("bad base url: {e}")))?;
     let blank: Url = "about:blank".parse().expect("valid url");
 
-    // Linux: a second webview in the main window, under the native tab strip.
-    #[cfg(target_os = "linux")]
-    let webview = {
-        let window = app
-            .get_window(MAIN)
-            .ok_or(Error::Config("main window is gone".into()))?;
-        // Position and size are ignored here — the GtkBox decides (see
-        // `layout_admin`) — but `add_child` requires them.
-        let webview = window.add_child(
-            WebviewBuilder::new(ADMIN_WEBVIEW, WebviewUrl::External(blank)),
-            LogicalPosition::new(0.0, 0.0),
-            LogicalSize::new(800.0, 600.0),
-        )?;
-        layout_admin(&app, true);
-        webview
-    };
-
-    // Everywhere else: its own window, as before F14. Tabs are Linux-only
-    // because the native strip they need is a GTK widget; a child webview
-    // with no way to switch back would be worse than a separate window.
-    #[cfg(not(target_os = "linux"))]
-    let webview = WebviewWindowBuilder::new(&app, ADMIN_WEBVIEW, WebviewUrl::External(blank))
-        .title("Proxmox")
-        .inner_size(1280.0, 860.0)
-        .center()
-        .focused(true)
-        .build()?;
+    let webview = Os::create_admin(&app, ADMIN_WEBVIEW, blank)?;
 
     // Hand the session ticket over so the panel opens already logged in,
     // rather than showing the Proxmox login form.
@@ -771,160 +489,24 @@ pub async fn show_admin(app: &AppHandle) -> Result<()> {
         .build();
     webview.set_cookie(cookie)?;
 
-    #[cfg(target_os = "linux")]
-    {
-        setup_admin_webview(
-            &webview,
-            app.clone(),
-            host.name.clone(),
-            host.host.clone(),
-            url.to_string(),
-        )?;
-        set_main_title(&app, "Admin");
-        let _ = app.emit("tab", "admin"); // F23: see the sibling call above.
-    }
-    #[cfg(not(target_os = "linux"))]
-    webview.navigate(url)?;
-
-    Ok(())
+    Os::attach(
+        &webview,
+        app.clone(),
+        host.name.clone(),
+        host.host.clone(),
+        url,
+    )?;
+    Os::show(&app)
 }
 
 /// F14/F21: switch back to the local Home tab.
 ///
-/// The webview is hidden rather than closed, so returning to the Admin tab
-/// doesn't reload the Proxmox UI or need another ticket.
+/// On Linux the webview is hidden rather than closed, so returning to the
+/// Admin tab doesn't reload the Proxmox UI or need another ticket. Elsewhere
+/// the panel's window is closed.
 #[tauri::command]
 pub fn hide_admin_panel(app: AppHandle) -> Result<()> {
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(webview) = app.get_webview(ADMIN_WEBVIEW) {
-            webview.hide()?;
-        }
-        // The local webview expands to fill the window again.
-        layout_admin(&app, false);
-        set_main_title(&app, "Home");
-    }
-    // No tab to switch to off Linux: the panel is its own window, so hiding
-    // it would strand it. Closing is what the caller (session loss) wants.
-    #[cfg(not(target_os = "linux"))]
-    if let Some(window) = app.get_webview_window(ADMIN_WEBVIEW) {
-        window.close()?;
-    }
-    Ok(())
-}
-
-/// Configure the admin panel's webview, then load it.
-///
-/// The Proxmox cert is signed by the cluster's own CA, which is not in the
-/// system trust store WebKitGTK reads, so the load fails with a TLS error and
-/// WebKitGTK offers no way to click through. We catch that failure, check the
-/// certificate's SHA-256 against the fingerprint saved in the config, allow
-/// that exact certificate for that one host, and retry the load.
-///
-/// First connect stores the fingerprint it sees (and reports it to the UI).
-/// Afterwards a certificate that does not match is refused — the window keeps
-/// WebKit's error page rather than trusting a cert that changed underneath us.
-///
-/// Narrower than trusting the cluster CA system-wide: that would let the CA
-/// vouch for any host, this accepts one certificate for one host, inside this
-/// app only.
-#[cfg(target_os = "linux")]
-fn setup_admin_webview(
-    webview: &tauri::Webview,
-    app: AppHandle,
-    entry: String,
-    hostname: String,
-    target: String,
-) -> Result<()> {
-    use std::cell::Cell;
-    use webkit2gtk::gio::prelude::TlsCertificateExt;
-    use webkit2gtk::glib;
-    use webkit2gtk::{WebContextExt, WebViewExt};
-
-    webview.with_webview(move |platform| {
-        let webview = platform.inner();
-        // One retry only: if the load still fails after allowing the cert,
-        // let the error page stand instead of looping.
-        let retried = Cell::new(false);
-
-        webview.connect_load_failed_with_tls_errors(move |webview, uri, cert, _errors| {
-            if retried.replace(true) {
-                return false;
-            }
-            let Some(der) = cert.certificate() else {
-                return false;
-            };
-            let Some(seen) = glib::compute_checksum_for_data(glib::ChecksumType::Sha256, &der)
-            else {
-                return false;
-            };
-            let seen = seen.to_string();
-
-            match pin_fingerprint(&entry, &seen) {
-                Ok(Pinned::Matches) => {}
-                Ok(Pinned::Stored) => {
-                    let _ = app.emit("admin-cert", format!("pinned node certificate {seen}"));
-                }
-                Ok(Pinned::Mismatch(expected)) => {
-                    let _ = app.emit(
-                        "admin-cert",
-                        format!(
-                            "REFUSED: node certificate is {seen}, expected {expected}. \
-                             Not loading the admin panel."
-                        ),
-                    );
-                    return false;
-                }
-                Err(e) => {
-                    let _ = app.emit("admin-cert", format!("certificate check failed: {e}"));
-                    return false;
-                }
-            }
-
-            let Some(context) = webview.context() else {
-                return false;
-            };
-            context.allow_tls_certificate_for_host(cert, &hostname);
-            webview.load_uri(uri);
-            true
-        });
-
-        webview.load_uri(&target);
-    })?;
-    Ok(())
-}
-
-/// Outcome of comparing a certificate against the pinned fingerprint.
-#[cfg(target_os = "linux")]
-enum Pinned {
-    /// Matches what the config already pinned.
-    Matches,
-    /// Nothing was pinned; this fingerprint has now been saved.
-    Stored,
-    /// Does not match the pinned fingerprint, which is carried back.
-    Mismatch(String),
-}
-
-/// Compare `seen` against the active host's pinned fingerprint, storing it
-/// if nothing is pinned yet.
-#[cfg(target_os = "linux")]
-fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
-    let mut cfg = config::load()?.ok_or(Error::NotConfigured)?;
-    let pinned = cfg.host(entry)?.cert_fingerprint.clone();
-    match pinned {
-        Some(expected) if expected == seen => Ok(Pinned::Matches),
-        Some(expected) => Ok(Pinned::Mismatch(expected)),
-        None => {
-            let target = cfg
-                .hosts
-                .iter_mut()
-                .find(|h| h.name == entry)
-                .ok_or_else(|| Error::Config(format!("no connection named {entry:?}")))?;
-            target.cert_fingerprint = Some(seen.to_string());
-            config::save(&cfg)?;
-            Ok(Pinned::Stored)
-        }
-    }
+    Os::hide(&app)
 }
 
 /// The page's Log out (Windows and macOS, where there is no top bar).
@@ -946,7 +528,7 @@ pub fn logout(app: AppHandle) -> Result<()> {
 /// stay, so the next launch auto-logs in again.
 pub fn end_session(app: &AppHandle) -> Result<()> {
     app.state::<AppState>().clear();
-    set_session_buttons_enabled(app, false);
+    Os::set_admin_enabled(app, false);
     // Closed, not hidden: the webview holds a session cookie, and the next
     // login may be a different connection entirely. A failed close is
     // reported, but only after the rest has run: the session is already gone,
@@ -955,11 +537,7 @@ pub fn end_session(app: &AppHandle) -> Result<()> {
         Some(panel) => panel.close(),
         None => Ok(()),
     };
-    #[cfg(target_os = "linux")]
-    {
-        layout_admin(app, false);
-        set_main_title(app, "Home");
-    }
+    Os::show_home(app);
     let _ = app.emit("logged-out", ());
     Ok(closed?)
 }

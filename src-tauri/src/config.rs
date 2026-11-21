@@ -86,20 +86,10 @@ fn default_port() -> u16 {
     8006
 }
 
-/// Default path to `remote-viewer` (F7).
-///
-/// Linux has a stable absolute path. On Windows and macOS virt-viewer is
-/// installed in version-stamped or package-manager-specific locations, so
-/// fall back to the bare command name and let PATH resolve it; the user can
-/// override it in `config.toml`.
+/// Default path to `remote-viewer` (F7), per OS (`platform`).
 fn default_viewer() -> String {
-    if cfg!(target_os = "linux") {
-        "/usr/bin/remote-viewer".into()
-    } else if cfg!(target_os = "windows") {
-        "remote-viewer.exe".into()
-    } else {
-        "remote-viewer".into()
-    }
+    use crate::platform::{Os, Platform};
+    Os::default_viewer().into()
 }
 
 impl Config {
