@@ -4,6 +4,7 @@
     "dockerfile": "Containerfile",
     "context": ".."
   },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
   "workspaceFolder": "/workspace",
 
   // Rootless podman: map the container user to the host user so files created

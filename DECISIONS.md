@@ -52,6 +52,45 @@ took 3s instead of milliseconds and logged a failed authentication on the node
 every time. Measured: `GET /api2/json/version` with no cookie = 3.005s / 401;
 `GET /` = 8ms / 200. The probe uses `/`.
 
+**GPUI (Zed's UI framework) for the launcher, with Admin in a second wry
+process** (2026-11-10). Prototyped on branch `gpui` (`prototypes/hybrid/`,
+last commit `5679f48`) and run against the real node. Not adopted.
+
+What the prototype showed, run on Linux only:
+- A GPUI window opens and draws a list. `launcher` spawns `admin`, a separate
+  wry process, and the two run side by side.
+- `admin` pins the node certificate with the same
+  `connect_load_failed_with_tls_errors` hook as `setup_admin_webview`, and
+  opens the panel already signed in. The ticket comes in on `admin`'s stdin
+  as one JSON line, never in argv, the environment or a file.
+- **`PVEAuthCookie` must not be `HttpOnly`.** The Proxmox UI reads it from
+  JavaScript. With `HttpOnly` set, the cookie reached the server's side of
+  the webview (it read back with the right name, domain and path) but the UI
+  still showed the login form. Without it, the panel opened signed in. The
+  Tauri code already sets no `HttpOnly`; keep it that way.
+
+Why it was not adopted (the first four are from reading the code and notes
+above; the last two are from memory and unchecked):
+- Admin stays a webview, so the app would carry two UI stacks, not one.
+- It loses F14: Admin becomes a separate window, not a tab.
+- It loses `tray.rs` (GPUI has no tray) and the Home UI work in `ui/main.js`
+  (F21–F26), and the `run-pve-desk` WebKitGTK harness.
+- The build is heavy: `target/` was 4.8 GB, and GPUI 0.2.2 needed a vendored
+  `xattr` patch to compile against current `libc`.
+- I believe GPUI needs Vulkan and has no software fallback on Linux. Not
+  tested. It would block use in VMs and some remote desktops.
+- GPUI is on 0.2.x and I believe the API changes often.
+
+Not proven by the prototype: the launcher's own half of the handoff (`curl`
+stood in for it), the tray, the keyring, `reqwest` next to GPUI's executor,
+and any of Windows or macOS.
+
+**Qt for the whole app** (2026-11-10). Rejected without a prototype. It would
+make Admin pinning, tabs and the tray portable, but Qt's only embedded web
+engine is Qt WebEngine, which bundles Chromium with the app. That is the
+Electron cost the project avoids (see "No Electron" below). Also needs C++
+glue through `cxx-qt`, and a rewrite of the UI.
+
 ---
 
 ## Decisions
@@ -600,6 +639,45 @@ can share would trade something working for something hypothetical.
 Windows and macOS stay buildable and stay in F17 — this is about not
 compromising the Linux UI, not about dropping them. Non-UI code stays
 portable.
+
+### No Electron; the system webview is fine (2026-11-10)
+**The rule is "do not ship a browser engine", not "no Chromium".** Tauri uses
+the engine the OS provides: WebKitGTK on Linux and WKWebView on macOS (both
+WebKit), and WebView2 on Windows. WebView2 is Chromium-based, but Windows
+supplies it as a shared system component, so the app does not bundle it.
+That meets the rule on all three platforms.
+
+Why: the aim was to avoid Electron's cost, a full Chromium and Node copy in
+every app. Tauri does not have that cost.
+
+Consequences:
+- Tauri 2 and the plain HTML frontend stay. Qt WebEngine does bundle
+  Chromium, so it fails the rule (see the Dead ends).
+- WebView2 on Windows is allowed. Windows 10 may need the runtime installed;
+  check whether Tauri's installer bootstraps it when F39 is done. Not tested.
+- Admin pinning on Windows (F40) is still open work. WebView2 has its own
+  certificate-error event; not tested.
+- For reference, `sakakun/Proxmox-Desktop-Client` (C#, Windows only) also uses
+  WebView2 for its web panel and consoles, and `virt-viewer` for SPICE. Read
+  from its README only, not its source.
+
+### Platform seam (2026-10-29)
+**One `src-tauri/src/platform/` module: a trait in `mod.rs` and one file per
+OS** (`linux.rs`, `windows.rs`, `macos.rs`). It holds the Admin shell (show,
+hide, title, status, enable), certificate pinning, the SPICE viewer and `.vv`
+write, and the tray-exists test. `commands.rs` stops carrying `cfg` branches
+for the shell. Tracked as F38, under F17.
+
+Why: `commands.rs` had about 25 `cfg(target_os = "linux")` sites, and each new
+OS would double them. Linux code is moved, not rewritten, so the Linux
+behaviour stays the same.
+
+Rejected: more `cfg` branches inside `commands.rs` (faster at first, but the
+branches multiply), and Linux only (drops F17).
+
+Order: F38 (Linux refactor), F39 (Windows build), then F40 pinning, F41 viewer
+and F42 macOS. Nothing on Windows or macOS is verified until it runs on real
+hardware.
 
 ### Release format (2026-10-21)
 **AppImage, plus an Arch package.** AppImage for everyone else: one file, no
@@ -1299,6 +1377,26 @@ no SSH keys, FOSS dependencies only, and Linux-primary with Windows in scope.
 They live there rather than here because they are constraints that have to be
 in context while code is being written, not history to look up afterwards.
 One source each: a decision is in `CLAUDE.md` or in this file, never both.
+
+### A power action shows its progress (F37, 2026-10-29)
+**Q37.0: a pending state held in the UI, plus a faster poll of the guest
+list. Not a poll of the Proxmox task.** Proxmox has no "shutting down" status
+in `/cluster/resources`: a guest reads `running` until it is off, so the
+pending state cannot come from the server. It lives in `ui/main.js` outside
+the guest payload, the way `busy` does, and reuses the `refreshTimer` pattern.
+
+Rejected: polling `/nodes/{node}/tasks/{upid}/status`. It gives the exact end
+time and the error text of a failed task, but it needs a new function in
+`api.rs`, a new command in `commands.rs`, and possibly a different return from
+`power_action`. The cost is larger than the benefit while the guest list
+already shows the result. Revisit it if a shutdown that the guest ignores
+needs a reason on screen, not only a timeout.
+
+Rejected: only shortening the one-shot retry (3 s, 6 s, 10 s). The row gives
+no sign that the click was taken.
+
+Open, in the issue: how long the fast poll runs (Q37.1), whether it pauses
+with F23's focus rule (Q37.2), and the wording of the pending labels (Q37.3).
 
 ---
 

@@ -1,241 +1,118 @@
 # pve-desk
 
-Linux desktop client for Proxmox VE. A launcher of saved connections (addable
-and removable), Admin — the embedded Proxmox web UI — signed in and ready, and
-a guest list with start / shutdown / stop on each row. SPICE is written but
-unproven.
+Linux desktop client for Proxmox VE, in Rust on Tauri 2. A launcher of saved
+connections, Admin (the embedded Proxmox web UI, signed in), a guest list
+with start / shutdown / stop on each row, and a tray icon that lists the
+guests. SPICE is written but unproven.
 
-The words this project is opinionated about are in `GLOSSARY.md`. Use them:
-a **guest** is a VM or a container, a **connection** is a saved login, a
-**ticket** is the Proxmox credential and never a work item.
+## Where things live
 
-Where things live, each with one job. Read the issue and `DECISIONS.md`
-before starting anything:
+Each place has one job:
 
-- **GitHub issues** — **outstanding work only**, one issue per feature,
-  titled `F<n> — <name>`. The body is the spec, written as Gherkin:
-  `Scenario:` blocks as its acceptance criteria and `#` comments carrying its
-  open questions. Labels give the pass (`v1` `v2` `v3` `later`) and the state
-  (`todo` `wip` `unverified` `blocked` `open`). The scenarios are the spec,
-  not an executable suite. A finished feature is closed. Conventions:
-  `docs/agents/issue-tracker.md`. Which pass a feature is in is its
-  milestone (`v1`, `v2`, `v3`) or, past those, the `later` label.
-- `DECISIONS.md` — why the app is built this way, and **what was already
-  tried and failed**. Check it before re-proposing something; several ideas
-  in there were built, tested and removed.
-- `README.md` — what the app does today, for someone reading the repo.
-- `GLOSSARY.md` — the agreed term for each concept, and the words to avoid.
+- **GitHub issues** (`AdamBougher/pve-desk`): outstanding work only. One
+  issue per feature, titled `F<n> — <name>`; the body is Gherkin
+  (`Scenario:` = acceptance criteria, `#` comments = open questions). The
+  F-number is permanent and is not the issue number, so find an issue by its
+  title. Labels and `gh` usage: `docs/agents/issue-tracker.md`,
+  `docs/agents/triage-labels.md`.
+- `DECISIONS.md`: why the app is built this way, and what was tried and
+  failed, with the measurement. Read the sections for your area before you
+  propose a design.
+- `GLOSSARY.md`: the agreed term for each concept. Use its words. A
+  **guest** is a VM or a container, a **connection** is a saved login, a
+  **ticket** is the Proxmox credential (a work item is an **issue**).
+- `README.md`: what the app does today.
 
-## Context
+To work a feature, use the `/feature` skill. It holds the full loop: read the
+issue, ask its open questions, reason, implement, verify, update labels,
+retire the issue.
 
-pve-desk is a desktop client for a Proxmox VE server on my own home network.
-Every host, account, certificate and ticket referred to in this repo is my
-own infrastructure. The **Hard rules** below exist to protect my credentials
-from careless handling by this app: the password must never reach disk or
-logs, TLS verification must stay on, and the frontend must never be able to
-drive arbitrary API calls.
+Before you touch `tauri::`, `tauri.conf.json`, `capabilities/` or
+`window.__TAURI__`, read the `tauri2` skill. Tauri 1 and Tauri 2 differ in
+exactly these places.
 
-## Decisions already made (don't revisit without asking)
+## Decisions already made
 
-- Language: Rust. UI shell: **Tauri 2** (not Tauri 1 — the APIs differ;
-  check any Tauri code or docs you use are for v2).
-- Frontend: plain HTML/CSS/JS in `ui/`, no Node, no bundler, no framework.
-  Backend is called via `window.__TAURI__.core.invoke`.
-- Auth: my own Proxmox account, username + password against
-  `/api2/json/access/ticket`. The password lives in the system keyring
-  (`keyring` crate, Secret Service) and nowhere else — not in the repo, not
-  in the config file. No SSH keys. The account signs in with a single factor,
-  so the client can fetch a ticket without an interactive prompt.
-- HTTP: `reqwest` with rustls (no OpenSSL).
-- Target platform: **Linux first, and deliberately so** (decided 2026-10-21).
-  It is the only platform verified by hand, and where the UI diverges, Linux
-  wins — the tab bar is a GTK widget with no Windows or macOS equivalent
-  (F14). Windows and macOS stay buildable and stay in F17, but are not worth
-  compromising the Linux UI for until someone actually runs them. Keep
-  non-UI code portable, put platform-specific work behind `cfg`, and say
-  which platforms you actually tested.
+Change these only after you ask me:
+
+- Rust backend, **Tauri 2**.
+- Frontend: plain HTML/CSS/JS in `ui/`. No Node, no bundler, no framework.
+  The UI calls the backend with `window.__TAURI__.core.invoke`.
+- Auth: username + password against `/api2/json/access/ticket`. The
+  password is stored in the system keyring (`keyring` crate, Secret
+  Service). The account uses a single factor.
+- HTTP: `reqwest` with rustls.
 - FOSS dependencies only.
+- Linux first. Where the UI differs per platform, Linux wins. Keep non-UI
+  code portable, put platform code behind `cfg`, and say which platforms you
+  tested.
 
-## Layout
+## Module map
 
-- `ui/` — frontend (`index.html`, `main.js`, `style.css`)
-- `src-tauri/src/commands.rs` — every function the UI can call
-- `src-tauri/src/api.rs` — Proxmox API client
-- `src-tauri/src/config.rs` — `~/.config/pve-desk/config.toml` (no secrets)
-- `src-tauri/src/secrets.rs` — keyring access
-- `src-tauri/src/spice.rs` — `.vv` file + `remote-viewer`
-- `src-tauri/src/error.rs` — shared error type, serialized as a string to the UI
+`src-tauri/src/`: `commands.rs` holds every function the UI can call;
+`api.rs` the Proxmox client and certificate verifier; `config.rs`
+`~/.config/pve-desk/config.toml` (no secrets); `secrets.rs` the keyring;
+`spice.rs` the `.vv` file and `remote-viewer`; `tray.rs` the tray;
+`error.rs` the error type, sent to the UI as a string.
 
-## Commands
+## Security rules
 
-Run from `src-tauri/`:
+These protect the user's credentials and server. They apply to every change:
 
-- Check: `cargo check`
-- Lint: `cargo clippy -- -D warnings`
-- Format: `cargo fmt`
-- Test: `cargo test`
-- Run: `cargo run` (or `cargo tauri dev` if tauri-cli is installed)
+- **Password**: it goes only to the keyring and the login request body.
+  Logs, the config file, error strings and any file on disk never contain it.
+- **TLS**: every connection is verified by `PinnedVerifier` in `api.rs`:
+  valid against the OS trust store, or equal to the pinned fingerprint. An
+  unknown certificate stops the connection and goes to the user for a
+  decision. Keep this as the only verifier.
+- **Power actions**: `Session::power` calls `check_power`, an allow-list of
+  guest types and actions. The frontend sends a node, guest type, VMID and
+  action name; it never sends an API path.
+- **Server text** (guest names, node names, tags, errors) goes into the DOM
+  with `textContent`.
+- **`.vv` file**: it holds a one-time ticket. Mode 0600, deleted soon after
+  use.
+- **Capabilities**: grant the narrowest permission that works. Capabilities
+  are scoped by webview label; the Admin webview loads a remote site and
+  gets no access to app commands.
 
-Before saying any change is done: `cargo fmt`, `cargo clippy -- -D warnings`
-and `cargo test` must pass with no warnings.
+## Architecture questions
 
-## Hard rules
+Ask me before you implement a decision that is hard to change later and that
+`DECISIONS.md` does not cover: a new or replaced crate, a new module or moved
+responsibility, how state is stored or shared, anything about auth, tickets,
+cookies, TLS or certificates, a new capability or window/webview, an on-disk
+format, or a background task or timer.
 
-- Never write the password to disk, logs, the config file, or error messages.
-  It only goes to the keyring and the login request.
-- TLS verification must stay enabled. There is no
-  `danger_accept_invalid_certs` anywhere in the codebase any more and none
-  may be added. Certificates are checked by the custom verifier in `api.rs`:
-  valid against the OS trust store, or matching the pinned fingerprint.
-  An unknown certificate must stop the connection and be shown to the user,
-  never accepted silently.
-- Power actions go through the allow-list in `Session::power`. Don't let the
-  frontend pass arbitrary API paths.
-- Text that comes from the server (VM names, node names, tags, errors) is set
-  with `textContent`, never `innerHTML`.
-- The `.vv` file contains a one-time ticket: keep it private (0600) and
-  short-lived.
-- New Tauri permissions in `capabilities/` must be the narrowest that works.
-  The admin panel window loads a remote site; it must not get access to the
-  app's commands.
+Ask one question. Give 2–3 options with trade-offs and your pick. After I
+answer, record the decision and its reason in `DECISIONS.md`.
 
 ## Proxmox API notes
 
 - Every response is wrapped: `{ "data": ... }`.
-- Login body is form-encoded, `username` is `user@realm`.
-- Every request sends `Cookie: PVEAuthCookie=<ticket>`.
-- POST/PUT/DELETE also send header `CSRFPreventionToken: <token>`. GET does not.
-- Tickets expire after ~2 hours; re-login before then (plan: every ~90 min).
-- Needed permissions: `VM.Audit` (list), `VM.PowerMgmt` (power),
-  `VM.Console` (SPICE).
-- pveproxy deliberately delays responses to **unauthenticated**
-  `/api2/json/*` requests by ~3s. Two consequences for this app: a liveness
-  probe aimed at an API endpoint takes 3s instead of milliseconds, and each
-  one records a failed authentication in my node's log for no reason. So
-  probe `/` for reachability — it needs no credentials, answers in ~8ms, and
-  leaves the auth log clean. Authenticated calls with a valid ticket are not
-  delayed. (Measured: `GET /api2/json/version` with no cookie = 3.005s / 401;
-  `GET /` = 8ms / 200.)
-- Official API reference: https://pve.proxmox.com/pve-docs/api-viewer/
-- If unsure how an endpoint behaves, say so and check the API viewer rather
-  than guessing.
+- Login body is form-encoded; `username` is `user@realm`.
+- Every request sends `Cookie: PVEAuthCookie=<ticket>`. POST/PUT/DELETE also
+  send `CSRFPreventionToken: <token>`.
+- Tickets expire after ~2 h; `commands.rs` refreshes after ~90 min.
+- Permissions: `VM.Audit` (list), `VM.PowerMgmt` (power), `VM.Console`
+  (SPICE).
+- pveproxy delays unauthenticated `/api2/json/*` requests by ~3 s and logs
+  each as a failed login. Probe `GET /` for reachability (~8 ms, no auth).
+- Reference: https://pve.proxmox.com/pve-docs/api-viewer/. If you are not
+  sure how an endpoint behaves, check there and say so.
 
-## Reason before you code
+## Done means
 
-Before writing or changing code, write out your reasoning in the reply:
+From `src-tauri/`: `cargo fmt`, `cargo clippy -- -D warnings` and
+`cargo test` pass with no warnings. Unit-test the pure parts (`.vv`
+formatting, config round-trip, response parsing from sample JSON).
 
-1. **Goal:** what this change must do, in one or two sentences.
-2. **Current state:** which files/functions are involved and what they do now
-   (read them first; don't assume).
-3. **Approach:** the steps you'll take, in order.
-4. **Assumptions:** anything you're taking as true without having verified it.
-   If an assumption is about architecture, stop and ask (next section).
-5. **Risks:** what could break, and how you'll check it.
-
-Only then edit files. After editing, compare the result against the goal and
-say whether it was met, partly met, or not met.
-
-## Architecture questions: ask, don't guess
-
-If a decision isn't already covered by this file or `DECISIONS.md`, and it
-would be hard to change later, **stop and ask me before implementing it.**
-
-Counts as architecture (always ask):
-- Adding a new crate/dependency, or replacing one
-- New modules, or moving responsibilities between modules
-- How state is stored or shared (files, keyring, in-memory, Tauri state)
-- Anything touching auth, tickets, cookies, TLS or certificate handling
-- New Tauri permissions/capabilities, or a new window/webview
-- Data formats on disk (config schema changes, new files)
-- Background tasks, threads, timers, or async runtime choices
-- Choosing between two or more reasonable designs
-
-Doesn't need asking: naming inside a function, small refactors within one
-module, test structure, fixing a clear bug without changing behaviour.
-
-How to ask:
-- One question at a time.
-- Give 2–3 concrete options, the trade-offs of each, and which one you'd pick
-  and why.
-- Say what you'll do while waiting (usually: nothing on that part).
-- After I answer, record the decision in `DECISIONS.md` (the decision + the
-  reason), so it isn't asked again.
-
-If you're unsure whether something counts as architecture, ask.
-
-## How to work on a feature
-
-1. Read the feature's issue — `gh issue view <n>`. The scenarios are what it
-   has to do, the `#` comments are what is still undecided. The F-number is
-   in the issue title and is permanent; it is **not** the issue number (F10 is
-   issue #26), so find the issue by its title —
-   `gh issue list --state open` — rather than by guessing a number.
-2. Ask its open questions **one at a time**. Wait for each answer before the
-   next question. Don't stack questions whose answers depend on each other.
-3. For each answer: record it in `DECISIONS.md` with its reasoning, and edit
-   the issue body so the question's comment becomes the scenario it implies —
-   or delete the comment if it decided nothing new.
-4. Write the reasoning from "Reason before you code". Ask any architecture
-   questions it raises.
-5. Implement it. Keep changes scoped to that feature — make its scenarios
-   true and don't invent scenarios it didn't have.
-6. Run fmt / clippy / test.
-7. Update the issue's state label (`todo` → `wip`, and `unverified` once the
-   code is there but nobody has run the scenarios). One state label at a
-   time; `gh issue edit <n> --add-label ... --remove-label ...`.
-8. Say which scenarios you could NOT run (anything needing a live Proxmox
-   node, a GUI click, or hardware you don't have).
-
-### When it's finished
-
-Don't leave a feature whose scenarios all pass sitting open. Finishing
-includes retiring the issue, in the same commit as the code:
-
-- **Close the issue** (`gh issue close <n> --comment "..."`). Closing it is
-  the whole retirement; there is no separate list to delete a row from.
-  Anything still open about it — a question you
-  deferred, a scenario nobody ran — moves to the "Shipped but unproven"
-  issue as an `unverified` scenario instead.
-- **Move its decisions to `DECISIONS.md`**: the answers to its questions with
-  the reasoning, and anything you tried that didn't work, with the
-  measurement that killed it. Not a build log — `git log` has that.
-- **Update `README.md`** if the feature changed what the app does.
-
-"Finished" means its scenarios were run, not that it compiled. If they can
-only be run against a live node you don't have, the issue stays open with the
-`unverified` label and I'll tell you when I've confirmed it.
-
-## Testing reality
-
-Login, the VM list, power actions, SPICE and the admin panel can only be
-truly verified against a real Proxmox node. If one isn't reachable, say the
-feature is untested — don't call it working. Unit-test the pure parts
-(`.vv` formatting, config round-trip, response parsing from sample JSON).
+Login, the guest list, power actions, SPICE, the tray and Admin need a live
+Proxmox node to verify. Without one, report the feature as untested and name
+the scenarios you could not run.
 
 ## Communication
 
-- Reply in ASD-STE100 Simplified Technical English, using `GLOSSARY.md`'s
-  vocabulary.
-- Work step by step. When a task has several steps that need input or depend
-  on the previous result, do one, report, then continue.
-- No praise or flattery. State facts. If I'm wrong, say so directly.
-- Be honest about uncertainty: say "I don't know" or "I haven't verified this".
-
-## Agent skills
-
-### Issue tracker
-
-GitHub issues in `AdamBougher/pve-desk`. The issue body is the Gherkin spec
-and the title carries the permanent `F<n>` number. See
-`docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-The five default triage labels, plus the old roadmap tags as labels — pass
-(`v1`…`later`), state (`todo` `wip` `unverified` `blocked` `open`) and
-qualifier (`perf` `linux` `windows`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context, and decisions live in `DECISIONS.md` rather than
-`docs/adr/`. See `docs/agents/domain.md`.
+- Reply in ASD-STE100 Simplified Technical English, with `GLOSSARY.md`'s
+  words.
+- State facts. If I am wrong, say so. If you do not know, say "I don't know".
