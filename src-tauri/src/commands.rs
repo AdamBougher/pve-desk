@@ -58,7 +58,7 @@ async fn fresh_session(state: &State<'_, AppState>) -> Result<(String, Session)>
 /// seconds against a connection that is gone (Q2.2).
 fn session_lost(app: &AppHandle, state: &State<'_, AppState>, why: &Error) {
     state.clear();
-    set_admin_tab_enabled(app, false);
+    set_session_buttons_enabled(app, false);
     let _ = app.emit("session-lost", why.to_string());
 }
 
@@ -174,7 +174,7 @@ pub async fn connect(
         Err(e) => return Err(e),
     };
     state.set_only(name.clone(), session);
-    set_admin_tab_enabled(&app, true);
+    set_session_buttons_enabled(&app, true);
 
     // Persist what the user just confirmed, so later connects verify against
     // it instead of asking again.
@@ -340,7 +340,7 @@ pub async fn add_connection(
     config::save(&cfg)?;
 
     state.set_only(name, session);
-    set_admin_tab_enabled(&app, true);
+    set_session_buttons_enabled(&app, true);
     Ok(ConnectOutcome::Connected)
 }
 
@@ -480,36 +480,37 @@ pub fn layout_admin(app: &AppHandle, admin_visible: bool) {
     };
 }
 
-// The Admin button, so its sensitivity can be toggled with the session.
+// The Admin and Log out buttons, so their sensitivity can be toggled with the
+// session (F33 Q33.3: one switch greys both).
 // A thread-local rather than app state because GTK widgets are not `Send`:
 // everything that touches it runs on the main thread, either inside
 // `with_webview` or via `run_on_main_thread`.
 #[cfg(target_os = "linux")]
 thread_local! {
-    static ADMIN_TAB: std::cell::RefCell<Option<gtk::Button>> =
-        const { std::cell::RefCell::new(None) };
+    static SESSION_BUTTONS: std::cell::RefCell<Vec<gtk::Button>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 // The native status label beside the tab strip (F21, Q21.2).
 // Exists so a certificate message from `app.emit("admin-cert", ...)` is
 // never hidden: it fires while the admin webview is loading, which is
 // exactly when the page's own `#statusbar` is covered. Same thread-local
-// pattern as `ADMIN_TAB` and the same reason — GTK widgets are not `Send`.
+// pattern as `SESSION_BUTTONS` and the same reason — GTK widgets are not `Send`.
 #[cfg(target_os = "linux")]
 thread_local! {
     static STATUS_LABEL: std::cell::RefCell<Option<gtk::Label>> =
         const { std::cell::RefCell::new(None) };
 }
 
-/// Grey the Admin tab out until there is a session to show.
+/// Grey the Admin tab and Log out until there is a session to act on.
 ///
-/// Without this the button is live on the launcher, where pressing it can
-/// only produce an error.
+/// Without this the buttons are live on the launcher, where pressing them
+/// can only produce an error or do nothing.
 #[cfg(target_os = "linux")]
-pub fn set_admin_tab_enabled(app: &AppHandle, enabled: bool) {
+pub fn set_session_buttons_enabled(app: &AppHandle, enabled: bool) {
     let _ = app.run_on_main_thread(move || {
-        ADMIN_TAB.with_borrow(|tab| {
-            if let Some(button) = tab {
+        SESSION_BUTTONS.with_borrow(|buttons| {
+            for button in buttons {
                 gtk::prelude::WidgetExt::set_sensitive(button, enabled);
             }
         });
@@ -517,14 +518,23 @@ pub fn set_admin_tab_enabled(app: &AppHandle, enabled: bool) {
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn set_admin_tab_enabled(_app: &AppHandle, _enabled: bool) {}
+pub fn set_session_buttons_enabled(_app: &AppHandle, _enabled: bool) {}
+
+/// F33: whether this build has the native top bar, which holds Log out.
+///
+/// The page hides its own Log out when this is true, so there is one Log out
+/// only (Q33.1). Linux-only like the strip itself (F14).
+#[tauri::command]
+pub fn has_top_bar() -> bool {
+    cfg!(target_os = "linux")
+}
 
 /// Write a status message to the native label beside the tab strip (F21).
 ///
 /// `main.js`'s `status()` calls this in addition to its own page text, so
 /// the message is visible even while Admin covers the page. Elsewhere Admin
 /// is its own window and never covers anything, so there is no label to
-/// write to — a no-op stub, same split as `set_admin_tab_enabled`.
+/// write to — a no-op stub, same split as `set_session_buttons_enabled`.
 #[tauri::command]
 #[cfg(target_os = "linux")]
 pub fn set_status(app: AppHandle, msg: String) {
@@ -563,7 +573,9 @@ const TAB_CSS: &str = "
 /// to get stuck.
 #[cfg(target_os = "linux")]
 pub fn install_native_tabs(app: &AppHandle) {
-    use gtk::prelude::{BoxExt, ButtonExt, Cast, CssProviderExt, StyleContextExt, WidgetExt};
+    use gtk::prelude::{
+        BoxExt, ButtonExt, Cast, CssProviderExt, LabelExt, StyleContextExt, WidgetExt,
+    };
 
     let Some(local) = app.get_webview(MAIN) else {
         return;
@@ -589,21 +601,33 @@ pub fn install_native_tabs(app: &AppHandle) {
         let home = gtk::Button::with_label("Home");
         group.pack_start(&admin, false, false, 0);
         group.pack_start(&home, false, false, 0);
-        strip.pack_start(&group, false, false, 0);
+
+        // F33 Q33.1: the bar reads `[status text …] [Admin | Home]  [Log out]`.
+        // Log out is outside the linked group, with a gap after Home, so it
+        // does not read as a third tab and a near-miss on Home does not log
+        // out. `pack_end` fills from the right, so Log out goes in first.
+        let logout = gtk::Button::with_label("Log out");
+        logout.set_margin_start(12);
+        strip.pack_end(&logout, false, false, 0);
+        strip.pack_end(&group, false, false, 0);
 
         // F21 Q21.2: a native label for status text, so an admin-cert
         // message (in particular the REFUSED one — CLAUDE.md's hard rule on
         // an unknown certificate) is visible even while Admin covers the
-        // page's own #statusbar. Packed to take the remaining width so it
-        // doesn't fight the buttons for space.
+        // page's own #statusbar. Takes the remaining width on the left, and
+        // reads from the left edge rather than centred in that space.
         let status_label = gtk::Label::new(None);
-        strip.pack_end(&status_label, true, true, 6);
+        status_label.set_xalign(0.0);
+        strip.pack_start(&status_label, true, true, 6);
         STATUS_LABEL.with_borrow_mut(|label| *label = Some(status_label));
 
-        // Nothing to show until a session exists; `set_admin_tab_enabled`
-        // turns it on at connect and off again at logout or session loss.
+        // Nothing to act on until a session exists; `set_session_buttons_enabled`
+        // turns both on at connect and off again at logout or session loss.
         admin.set_sensitive(false);
-        ADMIN_TAB.with_borrow_mut(|tab| *tab = Some(admin.clone()));
+        logout.set_sensitive(false);
+        SESSION_BUTTONS.with_borrow_mut(|buttons| {
+            *buttons = vec![admin.clone(), logout.clone()];
+        });
 
         if let Some(screen) = gtk::gdk::Screen::default() {
             let provider = gtk::CssProvider::new();
@@ -635,6 +659,16 @@ pub fn install_native_tabs(app: &AppHandle) {
             layout_admin(&app_home, false);
             set_main_title(&app_home, "Home");
             let _ = app_home.emit("tab", "home");
+        });
+
+        // Q33.2: the backend ends the session itself, so the user lands on
+        // Home with no session even if the hidden page's JavaScript never
+        // answers.
+        let app_logout = app.clone();
+        logout.connect_clicked(move |_| {
+            if let Err(e) = end_session(&app_logout) {
+                set_status(app_logout.clone(), format!("Log out failed: {e}"));
+            }
         });
 
         // Above both webviews. A non-expanding button box has a small,
@@ -893,20 +927,39 @@ fn pin_fingerprint(entry: &str, seen: &str) -> Result<Pinned> {
     }
 }
 
-/// Drop the session and tear down the admin panel.
+/// The page's Log out (Windows and macOS, where there is no top bar).
+#[tauri::command]
+pub fn logout(app: AppHandle) -> Result<()> {
+    end_session(&app)
+}
+
+/// Drop the session and tear down the admin panel, then tell the page
+/// (F33 Q33.2). The one teardown behind both the top bar's Log out and the
+/// `logout` command.
+///
+/// Everything a user can see outside the page happens here: the ticket goes,
+/// the Admin webview closes, Home is shown, Admin and Log out grey out, and
+/// the title says Home. The page's `logged-out` listener only clears its own
+/// view and shows the launcher.
 ///
 /// Saved credentials are left alone: the config file and the keyring entry
 /// stay, so the next launch auto-logs in again.
-#[tauri::command]
-pub fn logout(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
-    state.clear();
-    set_admin_tab_enabled(&app, false);
+pub fn end_session(app: &AppHandle) -> Result<()> {
+    app.state::<AppState>().clear();
+    set_session_buttons_enabled(app, false);
     // Closed, not hidden: the webview holds a session cookie, and the next
-    // login may be a different connection entirely.
-    if let Some(panel) = app.get_webview(ADMIN_WEBVIEW) {
-        panel.close()?;
-    }
+    // login may be a different connection entirely. A failed close is
+    // reported, but only after the rest has run: the session is already gone,
+    // so the user must still land on Home.
+    let closed = match app.get_webview(ADMIN_WEBVIEW) {
+        Some(panel) => panel.close(),
+        None => Ok(()),
+    };
     #[cfg(target_os = "linux")]
-    layout_admin(&app, false);
-    Ok(())
+    {
+        layout_admin(app, false);
+        set_main_title(app, "Home");
+    }
+    let _ = app.emit("logged-out", ());
+    Ok(closed?)
 }

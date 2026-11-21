@@ -110,6 +110,7 @@ pub fn run() {
             commands::open_admin_panel,
             commands::hide_admin_panel,
             commands::logout,
+            commands::has_top_bar,
             commands::set_status,
         ])
         // F23: the frontend pauses its 30s guest-list poll when the main

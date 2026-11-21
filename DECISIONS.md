@@ -400,6 +400,44 @@ fires from a real, authenticated connect, and there is no `xdotool` on this
 machine to script a click as a substitute — both missing together, not a
 deliberate skip. See issue #10 for exactly what is left to check by hand.
 
+### Log out is in the native top bar (F33, 2026-11-21)
+**Q33.1: the bar reads `[status text …] [Admin | Home]  [Log out]`.** The
+tab pair moves to the right end, and Log out is outboard of it at the far
+right, where a session control usually is. A gap separates it from Home, so
+it does not read as a third tab and a near-miss on Home does not log out.
+Rejected: Log out alone at the far left (the left end is navigation, and a
+destructive button would be the first thing read), and the pair kept at the
+left (drops the issue's own scenario).
+
+**Q33.2: the backend does the teardown and the page follows.** One Rust
+function ends the session: it clears the ticket, closes the Admin webview,
+shows the local webview, greys Admin and Log out, and sets the title to
+Home. Then it emits `logged-out`, and the page's listener only stops the
+poll, clears its view and shows the launcher. Both the GTK button and the
+page's `logout` command call that one function. Same shape as
+`session-lost`: if the page's JavaScript does not answer, the user still
+lands on Home with no session, not stuck behind Admin. Rejected: the GTK
+button emits a "logout-requested" event and the page runs today's handler.
+It is a smaller Rust change, but it depends on the hidden page's JavaScript
+to bring Home back, which F14 avoided for the tab switch for the same reason.
+
+**Q33.3: greyed without a session, like Admin.** One switch greys both.
+
+**Q33.4: already settled by F21 Q21.2.** The whole status line moved to a
+native GTK label beside the strip then, so nothing more moves here.
+
+The strip is Linux-only (F14). On Windows and macOS the page keeps its own
+Log out, and on Linux the page hides it, so there is one Log out only. The
+page asks the backend with the `has_top_bar` command (`cfg!(target_os =
+"linux")`) and does not read the user agent, so the build target is the
+single source of truth.
+
+Found during F33: `app-shot.sh` does not work on this machine any more.
+ImageMagick's `import` fails with "missing an image filename" for every
+window, the root window too, and the script matches the title `pve-desk`,
+which F21 changed to `pve-desk <version> — <tab>`. `spectacle -b -n -a`
+captured the window, but blank. The user checked the bar by eye.
+
 ### The list redraws only what changed (F22, 2026-10-24)
 **Q22.1: full diff by vmid, patching only the cells that changed — not the
 smaller identical-payload skip.** The smaller option only closes one of the
