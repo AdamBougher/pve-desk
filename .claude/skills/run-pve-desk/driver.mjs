@@ -517,7 +517,7 @@ async function smoke() {
   await click("#refresh");
   await waitUntil(
     async () =>
-      (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).textContent`)).includes("running"),
+      (await exec(`return [...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker")).querySelector(".light").getAttribute("aria-label")`)) === "Running",
     "status cell to update",
   );
   check(
@@ -525,7 +525,7 @@ async function smoke() {
     (await exec(
       `var r=[...document.querySelectorAll("#guests tr")].find(r=>r.textContent.includes("docker"));
        var b=[...r.querySelectorAll("td.actions button")].map(x=>x.textContent.trim());
-       return r.textContent.includes("running") && b.join(",")==="Shutdown,Stop"`,
+       return r.querySelector(".light").getAttribute("aria-label")==="Running" && b.join(",")==="Shutdown,Stop"`,
     )),
   );
   check(
@@ -797,6 +797,58 @@ async function smoke() {
     "frontend sent no API path",
     !JSON.stringify(pa.args).includes("/api2/"),
   );
+
+  console.log("status light (F31)");
+  const rowOf = (vmid) => `[...document.querySelectorAll("#guests tr:not(.detail)")]
+      .find(r=>r.cells[1].textContent.trim()==="${vmid}")`;
+  const lightOf = async (vmid) => exec(`var l=${rowOf(vmid)}.querySelector(".light");
+      return [l.className, l.title, l.getAttribute("aria-label"), l.getAttribute("role")].join("|")`);
+  check("running is a green circle with its word", (await lightOf(100)) === "light light-running|Running|Running|img", await lightOf(100));
+  check("stopped is a red square with its word", (await lightOf(101)) === "light light-stopped|Stopped|Stopped|img", await lightOf(101));
+  check("another status is a grey ring with the server's word", (await lightOf(102)) === "light light-other|paused|paused|img", await lightOf(102));
+  check(
+    "the light replaces the word",
+    (await exec(`return ${rowOf(102)}.querySelector("td.status").textContent`)) === "",
+  );
+  // Start docker; the stubbed node still reports it stopped.
+  await exec(`${rowOf(101)}.querySelector("td.actions button").click(); return true`);
+  await waitUntil(
+    async () => (await calls()).some((c) => c.cmd === "power_action" && c.args.vmid === 101 && c.args.action === "start"),
+    "start sent",
+  );
+  await click("#refresh");
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh");
+  check("a start in flight is an amber triangle", (await lightOf(101)) === "light light-starting|Starting|Starting|img", await lightOf(101));
+  check(
+    "the status filter still reads the node's status",
+    (await exec(`var s=document.querySelector("#status-filter"); s.value="stopped";
+      s.dispatchEvent(new Event("change"));
+      var shown=!${rowOf(101)}.hidden; s.value=""; s.dispatchEvent(new Event("change")); return shown`)) === true,
+  );
+  await exec(`window.__RESPONSES.list_guests.find(g=>g.vmid===101).status="running"; return true`);
+  await click("#refresh");
+  await waitUntil(async () => (await lightOf(101)).includes("light-running"), "docker running");
+  check("it turns green on the read that reports it running", (await lightOf(101)).startsWith("light light-running"));
+  await exec(`window.__RESPONSES.list_guests.find(g=>g.vmid===101).status="stopped"; return true`);
+  await click("#refresh");
+  await waitUntil(async () => (await lightOf(101)).includes("light-stopped"), "docker stopped again");
+  check("a later stop is red again, not amber", (await lightOf(101)).startsWith("light light-stopped"));
+  // The 60 s limit, without waiting 60 s: move the deadline into the past.
+  await exec(`${rowOf(103)}.querySelector("td.actions button").click(); return true`);
+  await waitUntil(async () => (await lightOf(103)).includes("light-starting"), "103 amber");
+  await exec(`starting.set(103, Date.now() - 1); return true`);
+  await click("#refresh");
+  await waitUntil(async () => !(await lightOf(103)).includes("light-starting"), "amber expires");
+  check("amber ends after its limit", (await lightOf(103)).startsWith("light light-stopped"), await lightOf(103));
+  await exec(`window.__FAIL.power_action = "refused"; return true`);
+  await exec(`${rowOf(103)}.querySelector("td.actions button").click(); return true`);
+  await waitUntil(
+    async () => (await calls()).filter((c) => c.cmd === "power_action" && c.args.vmid === 103).length === 2,
+    "start refused",
+  );
+  await waitUntil(async () => (await text("#status")).includes("Updated"), "refresh after the refusal");
+  check("a refused start is not amber", (await lightOf(103)).startsWith("light light-stopped"), await lightOf(103));
+  await exec(`delete window.__FAIL.power_action; return true`);
 
   console.log("poll pause/resume (F23)");
   // __TIMERS logs every real setInterval/clearInterval main.js's syncPolling
